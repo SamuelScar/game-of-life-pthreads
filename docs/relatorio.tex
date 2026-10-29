@@ -1,0 +1,163 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{amsmath}
+\usepackage{geometry}
+\usepackage{newtxtext,newtxmath}
+\usepackage{setspace}
+\usepackage[
+    colorlinks=true,
+    linkcolor=black,
+    urlcolor=blue
+]{hyperref}
+
+\geometry{a4paper, margin=2cm}
+\onehalfspacing
+
+\begin{document}
+\pagenumbering{gobble}
+
+\begin{titlepage}
+    \centering
+
+    {\large Universidade Federal de São João del-Rei -- UFSJ}\\
+    {\large Departamento de Ciência da Computação -- DCOMP}\\
+    {\large Computação Paralela}\\
+
+    \vspace*{5cm}
+
+    {\Large
+        \textbf{\MakeUppercase{
+            Paralelização do Jogo da Vida de Conway com Pthreads
+        }}
+    }\\[2cm]
+
+    {\normalsize
+        Autor:\\[0.3cm]
+        Samuel de Souza Carvalho Almeida
+    }
+
+    \vfill
+
+    {\normalsize Professor: Rafael Sachetto Oliveira}\\[1cm]
+    {\large São João del-Rei -- MG}\\
+    {\large 2026}
+\end{titlepage}
+
+\pagenumbering{roman}
+\tableofcontents
+\newpage
+\pagenumbering{arabic}
+
+\section{Introdução}
+
+Este trabalho apresenta o desenvolvimento de versões sequencial e paralela do
+Jogo da Vida de Conway. A versão paralela utilizará Pthreads e o modelo de
+memória compartilhada para distribuir a atualização da matriz entre diferentes
+threads.
+
+O desenvolvimento será acompanhado pelo perfil da versão sequencial, pela
+identificação das oportunidades de paralelização e pela avaliação do desempenho
+com diferentes tamanhos de matriz e quantidades de threads.
+
+\section{Jogo da Vida de Conway}
+
+O Jogo da Vida é um autômato celular representado por uma matriz bidimensional.
+Cada célula pode estar viva ou morta, e seu estado na próxima geração depende
+das oito células vizinhas.
+
+As regras de evolução são:
+
+\begin{itemize}
+    \item uma célula viva com menos de duas vizinhas vivas morre;
+    \item uma célula viva com duas ou três vizinhas vivas sobrevive;
+    \item uma célula viva com mais de três vizinhas vivas morre;
+    \item uma célula morta com exatamente três vizinhas vivas torna-se viva.
+\end{itemize}
+
+\section{Entrada e saída}
+
+A aplicação receberá o caminho de um arquivo contendo a quantidade de gerações,
+as dimensões da matriz, a quantidade inicial de células vivas e suas
+coordenadas. O estado final do mundo será escrito na saída padrão no mesmo
+formato definido para a entrada.
+
+As coordenadas são interpretadas como linha e coluna, com índices iniciados em
+zero. Células localizadas fora dos limites da matriz são consideradas mortas.
+Entradas com dimensões inválidas, coordenadas repetidas ou coordenadas fora da
+matriz são rejeitadas.
+
+\section{Implementação sequencial}
+
+A versão sequencial representa a matriz em um vetor contíguo de valores
+booleanos. O índice de uma célula é calculado a partir de sua linha, de sua
+coluna e da quantidade de colunas da matriz.
+
+Para cada célula, o programa percorre as oito posições vizinhas e contabiliza
+somente aquelas que estão dentro dos limites da matriz. Em seguida, aplica as
+regras do Jogo da Vida para determinar o estado da célula na próxima geração.
+
+A simulação utiliza duas matrizes: uma para leitura da geração atual e outra
+para escrita da próxima geração. Ao final de cada geração, os ponteiros são
+trocados. Dessa forma, nenhuma célula utiliza estados que já tenham sido
+atualizados na mesma geração.
+
+Depois da última geração, o programa conta as células vivas e percorre a matriz
+em ordem de linhas e colunas para escrever suas coordenadas na saída padrão.
+
+\section{Perfil de desempenho sequencial}
+
+O perfil da versão sequencial será obtido com a ferramenta \texttt{gprof}. A
+análise identificará os trechos de maior custo computacional e servirá como
+referência para a estratégia de paralelização.
+
+\section{Oportunidades de paralelização}
+
+A principal oportunidade de paralelização está na atualização das células da
+matriz. Como cada célula da próxima geração depende apenas do estado da geração
+atual, diferentes regiões podem ser calculadas simultaneamente.
+
+A estratégia adotada e os desafios relacionados às células de fronteira serão
+documentados durante a implementação da versão paralela.
+
+\section{Estratégia de paralelização com Pthreads}
+
+A matriz será dividida em seções, e cada thread será responsável pela
+atualização das células de sua região. Barreiras serão utilizadas para
+sincronizar as threads entre gerações e impedir que uma nova geração comece
+antes da conclusão da anterior.
+
+Os detalhes da decomposição de domínio, das estruturas compartilhadas e da
+sincronização serão apresentados após a implementação da versão paralela.
+
+\section{Avaliação de desempenho}
+
+A avaliação comparará os tempos médios das versões sequencial e paralela. O
+\textit{speedup} será calculado por
+
+\begin{equation}
+    S(P) = \frac{T_{\mathrm{sequencial}}}{T_{\mathrm{paralelo}}(P)},
+\end{equation}
+
+em que $P$ representa a quantidade de threads. A eficiência será calculada por
+
+\begin{equation}
+    E(P) = \frac{S(P)}{P}.
+\end{equation}
+
+Os tamanhos de matriz, as quantidades de gerações, o número de repetições e as
+quantidades de threads serão definidos antes da execução dos experimentos.
+
+Enquanto apenas a versão sequencial estiver disponível, os experimentos serão
+utilizados para estabelecer a linha de base. Cada configuração será repetida,
+e serão registradas a média, o menor tempo e o maior tempo observado. A leitura
+do arquivo e a escrita do estado final não farão parte do tempo medido.
+
+\section{Conclusões}
+
+Esta seção será completada após a implementação das duas versões e a análise
+dos resultados experimentais.
+
+\end{document}

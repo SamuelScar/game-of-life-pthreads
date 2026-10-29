@@ -1,0 +1,112 @@
+name: Experimentos sequenciais
+
+on:
+  workflow_dispatch:
+    inputs:
+      tamanhos:
+        description: "Lados das matrizes quadradas, separados por espaço"
+        required: true
+        default: "64 128 256 512 1024 2048"
+        type: string
+      geracoes:
+        description: "Quantidade de gerações por execução"
+        required: true
+        default: "200"
+        type: string
+      densidade:
+        description: "Percentual inicial de células vivas"
+        required: true
+        default: "25"
+        type: string
+      repeticoes:
+        description: "Repetições por tamanho de matriz"
+        required: true
+        default: "10"
+        type: string
+      semente:
+        description: "Semente usada para gerar as entradas determinísticas"
+        required: true
+        default: "42"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: experimentos-sequenciais
+  cancel-in-progress: false
+
+jobs:
+  executar:
+    name: Executar experimentos sequenciais
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - name: Baixar repositório
+        uses: actions/checkout@v7
+
+      - name: Construir ambiente
+        run: docker compose build dev
+
+      - name: Executar série de experimentos
+        id: experimentos
+        env:
+          TAMANHOS: ${{ inputs.tamanhos }}
+          GERACOES: ${{ inputs.geracoes }}
+          DENSIDADE: ${{ inputs.densidade }}
+          REPETICOES: ${{ inputs.repeticoes }}
+          SEMENTE: ${{ inputs.semente }}
+        run: |
+          docker compose run --rm -T \
+            -e TAMANHOS \
+            -e GERACOES \
+            -e DENSIDADE \
+            -e REPETICOES \
+            -e SEMENTE \
+            -e GITHUB_ACTIONS \
+            -e GITHUB_REPOSITORY \
+            -e GITHUB_SHA \
+            -e GITHUB_RUN_ID \
+            -e GITHUB_RUN_ATTEMPT \
+            -e RUNNER_NAME \
+            dev make experiments
+
+      - name: Gerar relatório final
+        if: always()
+        env:
+          STATUS_EXECUCAO: ${{ steps.experimentos.outcome }}
+        run: |
+          docker compose run --rm -T \
+            -e STATUS_EXECUCAO \
+            -e GITHUB_ACTIONS \
+            -e GITHUB_REPOSITORY \
+            -e GITHUB_SHA \
+            -e GITHUB_RUN_ID \
+            -e GITHUB_RUN_ATTEMPT \
+            -e RUNNER_NAME \
+            dev bash scripts/gerar_relatorio.sh
+
+      - name: Publicar resumo da execução
+        if: always()
+        run: |
+          relatorio="resultados/resumo_execucao.md"
+
+          if [[ -f "$relatorio" ]]; then
+            cat "$relatorio" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "O relatório dos experimentos não foi gerado." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Armazenar resultados
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: experimentos-sequenciais-${{ github.run_id }}
+          path: |
+            resultados/sequencial/execucoes.csv
+            resultados/entradas/
+            resultados/resumo_execucao.md
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 9
