@@ -55,6 +55,7 @@ shopt -s nullglob
 arquivos_entrada=(
     "$diretorio_entradas/classicos/"*.txt
     "$diretorio_entradas/aleatorias/"*.txt
+    "$diretorio_entradas/desempenho/"*.txt
 )
 shopt -u nullglob
 

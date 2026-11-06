@@ -159,11 +159,24 @@ As sementes fazem parte dos nomes dos arquivos. Isso mantém as posições
 aleatórias reproduzíveis entre a versão sequencial, a versão paralela e as
 execuções do GitHub Actions.
 
-As 35 entradas podem ser recriadas com:
+Essas entradas e as cargas de desempenho descritas a seguir podem ser recriadas
+com:
 
 ```bash
 docker compose run --rm dev make gerar-entradas-aleatorias
 ```
+
+### Entradas de desempenho
+
+O diretório `entradas/desempenho/` contém seis cargas maiores, separadas das
+entradas pseudoaleatórias de uso geral. Elas combinam matrizes quadradas e
+retangulares entre 1024 × 1024 e 8192 × 8192, com até 500 gerações. A maior
+configuração utiliza aproximadamente 128 MiB nas duas matrizes da simulação.
+
+Essas entradas foram dimensionadas para produzir execuções sequenciais com
+duração suficiente para comparar speedup e eficiência da futura versão com
+Pthreads. Com dez repetições, elas acrescentam aproximadamente 99,6 bilhões de
+atualizações de célula à série completa.
 
 Qualquer uma delas pode ser usada com a visualização. Por exemplo:
 
@@ -175,10 +188,10 @@ docker compose run --rm dev make visualizar-sequencial \
 
 ## Experimentos sequenciais
 
-A série executa todas as entradas de `entradas/classicos/` e
-`entradas/aleatorias/`. Cada arquivo define suas próprias dimensões, quantidade
-de gerações e células vivas iniciais. Por padrão, cada entrada é executada cinco
-vezes localmente:
+A série executa todas as entradas de `entradas/classicos/`,
+`entradas/aleatorias/` e `entradas/desempenho/`. Cada arquivo define suas
+próprias dimensões, quantidade de gerações e células vivas iniciais. Por padrão,
+cada entrada é executada cinco vezes localmente:
 
 ```bash
 docker compose run --rm dev make experiments
@@ -201,7 +214,9 @@ Cada série gera:
 
 O workflow `Experimentos sequenciais` é iniciado manualmente no GitHub Actions.
 Por padrão, ele executa cada entrada predefinida dez vezes. O único parâmetro do
-workflow é a quantidade de repetições.
+workflow é a quantidade de repetições. Com as cargas de desempenho, a execução
+completa pode levar dezenas de minutos, dependendo do processador atribuído ao
+runner.
 
 O relatório é publicado no resumo da execução e os resultados são armazenados
 como artefato por 30 dias. Ele apresenta média, desvio-padrão amostral, mínimo e

@@ -87,6 +87,7 @@ jobs:
           path: |
             entradas/classicos/
             entradas/aleatorias/
+            entradas/desempenho/
             resultados/sequencial/execucoes.csv
             resultados/perfil/
             resultados/resumo_execucao.md

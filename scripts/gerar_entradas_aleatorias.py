@@ -15,7 +15,7 @@ class Configuracao:
     semente: int
 
 
-CONFIGURACOES = (
+CONFIGURACOES_ALEATORIAS = (
     Configuracao("quadrada-5x5-d20-s1.txt", 5, 5, 10, 20, 1),
     Configuracao("quadrada-5x5-d40-s2.txt", 5, 5, 10, 40, 2),
     Configuracao("quadrada-5x5-d60-s3.txt", 5, 5, 10, 60, 3),
@@ -53,6 +53,33 @@ CONFIGURACOES = (
     Configuracao("vertical-1024x256-d2-s902.txt", 1024, 256, 30, 2, 902),
 )
 
+CONFIGURACOES_DESEMPENHO = (
+    Configuracao(
+        "quadrada-1024x1024-g500-d10-s1001.txt",
+        1024, 1024, 500, 10, 1001,
+    ),
+    Configuracao(
+        "quadrada-2048x2048-g250-d5-s1002.txt",
+        2048, 2048, 250, 5, 1002,
+    ),
+    Configuracao(
+        "quadrada-4096x4096-g100-d1-s1003.txt",
+        4096, 4096, 100, 1, 1003,
+    ),
+    Configuracao(
+        "quadrada-8192x8192-g50-d1-s1004.txt",
+        8192, 8192, 50, 1, 1004,
+    ),
+    Configuracao(
+        "horizontal-2048x8192-g100-d1-s1005.txt",
+        2048, 8192, 100, 1, 1005,
+    ),
+    Configuracao(
+        "vertical-8192x2048-g100-d1-s1006.txt",
+        8192, 2048, 100, 1, 1006,
+    ),
+)
+
 
 def gerar_conteudo(configuracao: Configuracao) -> str:
     quantidade_celulas = configuracao.linhas * configuracao.colunas
@@ -76,14 +103,23 @@ def gerar_conteudo(configuracao: Configuracao) -> str:
 
 def main() -> None:
     raiz_projeto = Path(__file__).resolve().parent.parent
-    diretorio_saida = raiz_projeto / "entradas" / "aleatorias"
-    diretorio_saida.mkdir(parents=True, exist_ok=True)
+    grupos = (
+        ("aleatorias", CONFIGURACOES_ALEATORIAS),
+        ("desempenho", CONFIGURACOES_DESEMPENHO),
+    )
 
-    for configuracao in CONFIGURACOES:
-        arquivo_saida = diretorio_saida / configuracao.nome
-        arquivo_saida.write_text(gerar_conteudo(configuracao), encoding="utf-8")
+    for nome_diretorio, configuracoes in grupos:
+        diretorio_saida = raiz_projeto / "entradas" / nome_diretorio
+        diretorio_saida.mkdir(parents=True, exist_ok=True)
 
-    print(f"{len(CONFIGURACOES)} entradas aleatórias geradas em {diretorio_saida}")
+        for configuracao in configuracoes:
+            arquivo_saida = diretorio_saida / configuracao.nome
+            arquivo_saida.write_text(
+                gerar_conteudo(configuracao),
+                encoding="utf-8",
+            )
+
+        print(f"{len(configuracoes)} entradas geradas em {diretorio_saida}")
 
 
 if __name__ == "__main__":
