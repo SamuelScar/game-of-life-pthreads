@@ -79,6 +79,8 @@ ms_print "$diretorio_saida/massif.out" > "$diretorio_saida/massif-resumo.txt"
 cp /proc/meminfo "$diretorio_saida/meminfo-fim.txt"
 cp /proc/vmstat "$diretorio_saida/vmstat-fim.txt"
 
+chmod -R a+rX "$diretorio_saida"
+
 printf 'Perfil detalhado gerado em %s usando %s.\n' \
     "$diretorio_saida" \
     "${entrada#"$raiz_projeto/"}"
