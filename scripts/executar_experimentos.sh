@@ -81,25 +81,25 @@ printf 'Entradas predefinidas: %d | Repetições: %d\n' \
     "${#arquivos_entrada[@]}" \
     "$repeticoes"
 
-for indice in "${!arquivos_entrada[@]}"; do
-    arquivo_entrada="${arquivos_entrada[$indice]}"
-    entrada_relativa="${arquivo_entrada#"$diretorio_entradas/"}"
-    categoria="$(basename "$(dirname "$arquivo_entrada")")"
-    geracoes="$(sed -n '1p' "$arquivo_entrada")"
-    read -r linhas colunas < <(sed -n '2p' "$arquivo_entrada")
-    quantidade_vivas="$(sed -n '3p' "$arquivo_entrada")"
+for ((rodada = 1; rodada <= repeticoes; rodada++)); do
+    for indice in "${!arquivos_entrada[@]}"; do
+        arquivo_entrada="${arquivos_entrada[$indice]}"
+        entrada_relativa="${arquivo_entrada#"$diretorio_entradas/"}"
+        categoria="$(basename "$(dirname "$arquivo_entrada")")"
+        geracoes="$(sed -n '1p' "$arquivo_entrada")"
+        read -r linhas colunas < <(sed -n '2p' "$arquivo_entrada")
+        quantidade_vivas="$(sed -n '3p' "$arquivo_entrada")"
 
-    validar_cabecalho \
-        "$entrada_relativa" \
-        "$geracoes" \
-        "$linhas" \
-        "$colunas" \
-        "$quantidade_vivas"
+        validar_cabecalho \
+            "$entrada_relativa" \
+            "$geracoes" \
+            "$linhas" \
+            "$colunas" \
+            "$quantidade_vivas"
 
-    tamanho_arquivo="$(stat -c '%s' "$arquivo_entrada")"
-    memoria_matrizes=$((linhas * colunas * 2))
+        tamanho_arquivo="$(stat -c '%s' "$arquivo_entrada")"
+        memoria_matrizes=$((linhas * colunas * 2))
 
-    for ((rodada = 1; rodada <= repeticoes; rodada++)); do
         arquivo_erro="$diretorio_temporario/erro-${indice}-${rodada}.txt"
         arquivo_metricas="$diretorio_temporario/metricas-${indice}-${rodada}.csv"
         printf 'Sequencial | Entrada=%s | Matriz=%dx%d | Gerações=%d | Rodada=%d/%d\n' \

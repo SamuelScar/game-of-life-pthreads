@@ -205,6 +205,12 @@ docker compose run --rm \
   dev make experiments
 ```
 
+As execuções são intercaladas por rodada: primeiro todas as entradas executam
+a rodada inicial, depois todas executam a segunda rodada, e assim por diante.
+Isso distribui cada entrada ao longo da duração do experimento e reduz o viés
+de executar dez vezes consecutivas com o mesmo arquivo e estado recente da
+máquina.
+
 Cada série gera:
 
 - `resultados/sequencial/execucoes.csv`, com o nome, a categoria, as dimensões
