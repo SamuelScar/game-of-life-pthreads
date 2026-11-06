@@ -54,6 +54,7 @@ done
 
 OMITIR_SAIDA=1 valgrind \
     --tool=cachegrind \
+    --cache-sim=yes \
     --branch-sim=yes \
     --cachegrind-out-file="$diretorio_saida/cachegrind.out" \
     --log-file="$diretorio_saida/cachegrind.log" \
