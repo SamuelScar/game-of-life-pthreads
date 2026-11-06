@@ -45,11 +45,24 @@ fi
 versao_gcc="$(gcc --version 2>/dev/null | sed -n '1p' || true)"
 versao_gcc="${versao_gcc:-indisponivel}"
 status_execucao="${STATUS_EXECUCAO:-concluida}"
+status_perfil="${STATUS_PERFIL:-nao_informado}"
 quantidade_execucoes=0
+quantidade_entradas=0
 
 if [[ -f "$arquivo_resultados" ]]; then
     quantidade_execucoes="$(
         awk 'END { print (NR > 0 ? NR - 1 : 0) }' "$arquivo_resultados"
+    )"
+    quantidade_entradas="$(
+        awk -F, '
+            NR > 1 && !($1 in entradas) {
+                entradas[$1] = 1
+                quantidade++
+            }
+
+            END { print quantidade + 0 }
+        ' \
+            "$arquivo_resultados"
     )"
 fi
 
@@ -59,7 +72,9 @@ fi
     printf -- '- Início: `%s`\n' "$inicio_iso"
     printf -- '- Término: `%s`\n' "$fim_iso"
     printf -- '- Duração total: `%s`\n' "$duracao_total"
-    printf -- '- Execuções sequenciais: `%d`\n\n' "$quantidade_execucoes"
+    printf -- '- Entradas predefinidas: `%d`\n' "$quantidade_entradas"
+    printf -- '- Execuções sequenciais: `%d`\n' "$quantidade_execucoes"
+    printf -- '- Perfil detalhado: `%s`\n\n' "$status_perfil"
 
     printf '## Ambiente de execução\n\n'
     printf '| Propriedade | Valor |\n'
@@ -84,20 +99,25 @@ fi
     printf '\n## Resultados sequenciais\n\n'
 
     if [[ -s "$arquivo_resultados" ]]; then
-        printf '| Linhas | Colunas | Gerações | Densidade | Semente | Células iniciais | Rodadas | Média (s) | Desvio-padrão (s) | Mínimo (s) | Máximo (s) |\n'
-        printf '|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n'
+        printf '| Entrada | Categoria | Linhas | Colunas | Gerações | Células iniciais | Rodadas | Simulação média (s) | Desvio-padrão (s) | Mínimo (s) | Máximo (s) | RSS máximo médio (MiB) | Falhas maiores médias | Falhas menores médias | Trocas voluntárias médias | Trocas involuntárias médias |\n'
+        printf '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n'
         awk -F, '
             NR > 1 {
                 chave = $1 SUBSEP $2 SUBSEP $3 SUBSEP $4 SUBSEP $5 SUBSEP $7
                 quantidade[chave]++
-                soma[chave] += $8
-                soma_quadrados[chave] += $8 * $8
+                soma[chave] += $10
+                soma_quadrados[chave] += $10 * $10
+                soma_rss[chave] += $15
+                soma_falhas_maiores[chave] += $22
+                soma_falhas_menores[chave] += $23
+                soma_trocas_voluntarias[chave] += $25
+                soma_trocas_involuntarias[chave] += $26
 
-                if (!(chave in minimo) || $8 < minimo[chave])
-                    minimo[chave] = $8
+                if (!(chave in minimo) || $10 < minimo[chave])
+                    minimo[chave] = $10
 
-                if (!(chave in maximo) || $8 > maximo[chave])
-                    maximo[chave] = $8
+                if (!(chave in maximo) || $10 > maximo[chave])
+                    maximo[chave] = $10
             }
 
             END {
@@ -108,7 +128,7 @@ fi
                         ? (soma_quadrados[chave] - quantidade[chave] * media * media) / (quantidade[chave] - 1) \
                         : 0
                     desvio_padrao = variancia > 0 ? sqrt(variancia) : 0
-                    printf "%d,%d,%d,%d,%d,%d,%d,%.9f,%.9f,%.9f,%.9f\n",
+                    printf "%s,%s,%d,%d,%d,%d,%d,%.9f,%.9f,%.9f,%.9f,%.3f,%.3f,%.3f,%.3f,%.3f\n",
                         campos[1],
                         campos[2],
                         campos[3],
@@ -119,23 +139,53 @@ fi
                         media,
                         desvio_padrao,
                         minimo[chave],
-                        maximo[chave]
+                        maximo[chave],
+                        soma_rss[chave] / quantidade[chave] / 1024,
+                        soma_falhas_maiores[chave] / quantidade[chave],
+                        soma_falhas_menores[chave] / quantidade[chave],
+                        soma_trocas_voluntarias[chave] / quantidade[chave],
+                        soma_trocas_involuntarias[chave] / quantidade[chave]
                 }
             }
         ' "$arquivo_resultados" \
-            | sort -t, -k1,1n -k2,2n \
+            | sort -t, -k2,2 -k1,1 \
             | awk -F, '{
-                printf "| %d | %d | %d | %d%% | %d | %d | %d | %.9f | %.9f | %.9f | %.9f |\n",
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+                printf "| `%s` | %s | %d | %d | %d | %d | %d | %.9f | %.9f | %.9f | %.9f | %.3f | %.3f | %.3f | %.3f | %.3f |\n",
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
             }'
     else
         printf 'Nenhum resultado sequencial foi encontrado.\n'
     fi
 
+    printf '\n## Perfil detalhado\n\n'
+
+    if [[ -f "$diretorio_resultados/perfil/entrada.txt" ]]; then
+        printf -- '- Entrada analisada: `%s`\n' \
+            "$(< "$diretorio_resultados/perfil/entrada.txt")"
+        printf -- '- Cachegrind: referências a instruções e dados, faltas de cache e desvios de fluxo.\n'
+        printf -- '- Massif: evolução e pico do uso de heap e pilha.\n'
+        printf -- '- Assembly: instruções geradas e registradores escolhidos pelo compilador.\n'
+        printf -- '- Sistema: topologia de caches e snapshots de RAM e memória virtual.\n'
+
+        if [[ -s "$diretorio_resultados/perfil/caches.csv" ]]; then
+            printf '\n### Hierarquia de caches\n\n'
+            printf '| Índice | Nível | Tipo | Tamanho | Linha (bytes) | Conjuntos | Vias | CPUs compartilhadas |\n'
+            printf '|---|---:|---|---:|---:|---:|---:|---|\n'
+            awk -F, 'NR > 1 {
+                printf "| %s | %s | %s | %s | %s | %s | %s | %s |\n",
+                    $1, $2, $3, $4, $5, $6, $7, $8
+            }' "$diretorio_resultados/perfil/caches.csv"
+        fi
+    else
+        printf 'O perfil detalhado não foi coletado.\n'
+    fi
+
     printf '\n## Observações\n\n'
     printf -- '- Os tempos incluem somente a simulação das gerações.\n'
     printf -- '- A leitura da entrada e a escrita do estado final não fazem parte da medição.\n'
-    printf -- '- As entradas são determinísticas e usam a mesma semente em todas as rodadas.\n'
+    printf -- '- As entradas são arquivos predefinidos e versionados no repositório.\n'
+    printf -- '- O CSV completo contém métricas de memória, CPU, paginação, contexto e I/O por execução.\n'
+    printf -- '- As métricas do Cachegrind representam uma simulação dos caches, não contadores físicos do processador.\n'
     printf -- '- O desvio-padrão amostral indica a variação dos tempos entre as rodadas.\n'
     printf -- '- Speedup e eficiência serão calculados após a implementação paralela.\n'
 } > "$arquivo_relatorio"

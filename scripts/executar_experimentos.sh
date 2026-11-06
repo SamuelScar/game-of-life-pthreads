@@ -5,19 +5,15 @@ set -euo pipefail
 diretorio_script="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 raiz_projeto="$(cd -- "$diretorio_script/.." && pwd)"
 binario="$raiz_projeto/bin/sequencial"
+diretorio_entradas="$raiz_projeto/entradas"
 diretorio_resultados="$raiz_projeto/resultados"
-diretorio_entradas="$diretorio_resultados/entradas"
 arquivo_resultados="$diretorio_resultados/sequencial/execucoes.csv"
 arquivo_inicio="$diretorio_resultados/inicio_execucao.txt"
 diretorio_temporario="$(mktemp -d)"
 
 trap 'rm -rf "$diretorio_temporario"' EXIT
 
-read -r -a tamanhos <<< "${TAMANHOS:-128 256 512 1024}"
-geracoes="${GERACOES:-100}"
-densidade="${DENSIDADE:-25}"
 repeticoes="${REPETICOES:-5}"
-semente="${SEMENTE:-42}"
 
 validar_inteiro_positivo()
 {
@@ -30,35 +26,44 @@ validar_inteiro_positivo()
     fi
 }
 
-validar_inteiro_positivo GERACOES "$geracoes"
+validar_cabecalho()
+{
+    local arquivo="$1"
+    local geracoes="$2"
+    local linhas="$3"
+    local colunas="$4"
+    local quantidade_vivas="$5"
+
+    if [[ ! "$geracoes" =~ ^[0-9]+$
+        || ! "$linhas" =~ ^[1-9][0-9]*$
+        || ! "$colunas" =~ ^[1-9][0-9]*$
+        || ! "$quantidade_vivas" =~ ^[0-9]+$ ]] \
+        || ((quantidade_vivas > linhas * colunas)); then
+        printf 'Cabeçalho inválido em %s.\n' "$arquivo" >&2
+        exit 1
+    fi
+}
+
 validar_inteiro_positivo REPETICOES "$repeticoes"
 
-if [[ ! "$densidade" =~ ^[0-9]+$ ]] || ((densidade < 0 || densidade > 100)); then
-    printf 'DENSIDADE deve ser um inteiro entre 0 e 100.\n' >&2
-    exit 1
-fi
-
-if [[ ! "$semente" =~ ^[0-9]+$ ]]; then
-    printf 'SEMENTE deve ser um inteiro maior ou igual a zero.\n' >&2
-    exit 1
-fi
-
-if ((${#tamanhos[@]} == 0)); then
-    printf 'Informe pelo menos um tamanho de matriz.\n' >&2
-    exit 1
-fi
-
-for tamanho in "${tamanhos[@]}"; do
-    validar_inteiro_positivo TAMANHOS "$tamanho"
-done
-
 if [[ ! -x "$binario" ]]; then
-    printf 'Executavel sequencial nao encontrado em %s.\n' "$binario" >&2
+    printf 'Executável sequencial não encontrado em %s.\n' "$binario" >&2
     exit 1
 fi
 
-mkdir -p "$diretorio_entradas" "$(dirname "$arquivo_resultados")"
-rm -f "$diretorio_entradas"/*.txt
+shopt -s nullglob
+arquivos_entrada=(
+    "$diretorio_entradas/classicos/"*.txt
+    "$diretorio_entradas/aleatorias/"*.txt
+)
+shopt -u nullglob
+
+if ((${#arquivos_entrada[@]} == 0)); then
+    printf 'Nenhuma entrada predefinida foi encontrada.\n' >&2
+    exit 1
+fi
+
+mkdir -p "$(dirname "$arquivo_resultados")"
 
 printf '%s\n%s\n' \
     "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
@@ -66,76 +71,48 @@ printf '%s\n%s\n' \
     > "$arquivo_inicio"
 
 printf '%s\n' \
-    'linhas,colunas,geracoes,densidade,semente,rodada,celulas_vivas_iniciais,tempo_segundos' \
+    'entrada,categoria,linhas,colunas,geracoes,rodada,celulas_vivas_iniciais,arquivo_entrada_bytes,memoria_matrizes_bytes,tempo_simulacao_segundos,tempo_usuario_segundos,tempo_sistema_segundos,tempo_parede_segundos,cpu_percentual,rss_maximo_kb,rss_medio_kb,memoria_total_media_kb,dados_nao_compartilhados_kb,pilha_media_kb,texto_compartilhado_kb,pagina_bytes,page_faults_maiores,page_faults_menores,swaps,trocas_contexto_voluntarias,trocas_contexto_involuntarias,leituras_sistema_arquivos,escritas_sistema_arquivos,status_saida' \
     > "$arquivo_resultados"
 
-gerar_entrada()
-{
-    local tamanho="$1"
-    local arquivo="$2"
-    local quantidade_vivas
-
-    quantidade_vivas="$(
-        awk \
-            -v linhas="$tamanho" \
-            -v colunas="$tamanho" \
-            -v percentual="$densidade" \
-            -v seed="$semente" '
-                BEGIN {
-                    quantidade = 0
-
-                    for (linha = 0; linha < linhas; linha++) {
-                        for (coluna = 0; coluna < colunas; coluna++) {
-                            hash = (linha * 73856093 + coluna * 19349663 + seed * 83492791) % 100
-                            quantidade += hash < percentual
-                        }
-                    }
-
-                    print quantidade
-                }
-            '
-    )"
-
-    {
-        printf '%d\n' "$geracoes"
-        printf '%d %d\n' "$tamanho" "$tamanho"
-        printf '%d\n' "$quantidade_vivas"
-        awk \
-            -v linhas="$tamanho" \
-            -v colunas="$tamanho" \
-            -v percentual="$densidade" \
-            -v seed="$semente" '
-                BEGIN {
-                    for (linha = 0; linha < linhas; linha++) {
-                        for (coluna = 0; coluna < colunas; coluna++) {
-                            hash = (linha * 73856093 + coluna * 19349663 + seed * 83492791) % 100
-
-                            if (hash < percentual)
-                                printf "%d %d\n", linha, coluna
-                        }
-                    }
-                }
-            '
-    } > "$arquivo"
-
-    printf '%s' "$quantidade_vivas"
-}
-
-total_execucoes=$((${#tamanhos[@]} * repeticoes))
+total_execucoes=$((${#arquivos_entrada[@]} * repeticoes))
 printf 'Experimentos sequenciais planejados: %d\n' "$total_execucoes"
-printf 'Gerações: %d | Densidade: %d%% | Repetições: %d | Semente: %d\n' \
-    "$geracoes" "$densidade" "$repeticoes" "$semente"
+printf 'Entradas predefinidas: %d | Repetições: %d\n' \
+    "${#arquivos_entrada[@]}" \
+    "$repeticoes"
 
-for tamanho in "${tamanhos[@]}"; do
-    arquivo_entrada="$diretorio_entradas/mundo-${tamanho}x${tamanho}.txt"
-    quantidade_vivas="$(gerar_entrada "$tamanho" "$arquivo_entrada")"
+for indice in "${!arquivos_entrada[@]}"; do
+    arquivo_entrada="${arquivos_entrada[$indice]}"
+    entrada_relativa="${arquivo_entrada#"$diretorio_entradas/"}"
+    categoria="$(basename "$(dirname "$arquivo_entrada")")"
+    geracoes="$(sed -n '1p' "$arquivo_entrada")"
+    read -r linhas colunas < <(sed -n '2p' "$arquivo_entrada")
+    quantidade_vivas="$(sed -n '3p' "$arquivo_entrada")"
+
+    validar_cabecalho \
+        "$entrada_relativa" \
+        "$geracoes" \
+        "$linhas" \
+        "$colunas" \
+        "$quantidade_vivas"
+
+    tamanho_arquivo="$(stat -c '%s' "$arquivo_entrada")"
+    memoria_matrizes=$((linhas * colunas * 2))
 
     for ((rodada = 1; rodada <= repeticoes; rodada++)); do
-        arquivo_erro="$diretorio_temporario/erro-${tamanho}-${rodada}.txt"
-        printf 'Sequencial | Matriz=%dx%d | Gerações=%d | Rodada=%d/%d\n' \
-            "$tamanho" "$tamanho" "$geracoes" "$rodada" "$repeticoes"
+        arquivo_erro="$diretorio_temporario/erro-${indice}-${rodada}.txt"
+        arquivo_metricas="$diretorio_temporario/metricas-${indice}-${rodada}.csv"
+        printf 'Sequencial | Entrada=%s | Matriz=%dx%d | Gerações=%d | Rodada=%d/%d\n' \
+            "$entrada_relativa" \
+            "$linhas" \
+            "$colunas" \
+            "$geracoes" \
+            "$rodada" \
+            "$repeticoes"
 
-        if ! MEDIR_TEMPO=1 OMITIR_SAIDA=1 \
+        if ! /usr/bin/time \
+            --output="$arquivo_metricas" \
+            --format='%U,%S,%e,%P,%M,%t,%K,%D,%p,%X,%Z,%F,%R,%W,%w,%c,%I,%O,%x' \
+            env MEDIR_TEMPO=1 OMITIR_SAIDA=1 \
             "$binario" "$arquivo_entrada" \
             > /dev/null 2> "$arquivo_erro"; then
             sed 's/^/  /' "$arquivo_erro" >&2
@@ -151,15 +128,60 @@ for tamanho in "${tamanhos[@]}"; do
             exit 1
         fi
 
-        printf '%d,%d,%d,%d,%d,%d,%d,%s\n' \
-            "$tamanho" \
-            "$tamanho" \
+        IFS=, read -r \
+            tempo_usuario \
+            tempo_sistema \
+            tempo_parede \
+            cpu_percentual \
+            rss_maximo \
+            rss_medio \
+            memoria_total_media \
+            dados_nao_compartilhados \
+            pilha_media \
+            texto_compartilhado \
+            pagina_bytes \
+            page_faults_maiores \
+            page_faults_menores \
+            swaps \
+            trocas_contexto_voluntarias \
+            trocas_contexto_involuntarias \
+            leituras_sistema_arquivos \
+            escritas_sistema_arquivos \
+            status_saida \
+            < "$arquivo_metricas"
+
+        cpu_percentual="${cpu_percentual%\%}"
+
+        printf '%s,%s,%d,%d,%d,%d,%d,%d,%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+            "$entrada_relativa" \
+            "$categoria" \
+            "$linhas" \
+            "$colunas" \
             "$geracoes" \
-            "$densidade" \
-            "$semente" \
             "$rodada" \
             "$quantidade_vivas" \
+            "$tamanho_arquivo" \
+            "$memoria_matrizes" \
             "$tempo" \
+            "$tempo_usuario" \
+            "$tempo_sistema" \
+            "$tempo_parede" \
+            "$cpu_percentual" \
+            "$rss_maximo" \
+            "$rss_medio" \
+            "$memoria_total_media" \
+            "$dados_nao_compartilhados" \
+            "$pilha_media" \
+            "$texto_compartilhado" \
+            "$pagina_bytes" \
+            "$page_faults_maiores" \
+            "$page_faults_menores" \
+            "$swaps" \
+            "$trocas_contexto_voluntarias" \
+            "$trocas_contexto_involuntarias" \
+            "$leituras_sistema_arquivos" \
+            "$escritas_sistema_arquivos" \
+            "$status_saida" \
             >> "$arquivo_resultados"
     done
 done

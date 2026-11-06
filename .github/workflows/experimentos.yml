@@ -3,30 +3,10 @@ name: Experimentos sequenciais
 on:
   workflow_dispatch:
     inputs:
-      tamanhos:
-        description: "Lados das matrizes quadradas, separados por espaço"
-        required: true
-        default: "64 128 256 512 1024 2048"
-        type: string
-      geracoes:
-        description: "Quantidade de gerações por execução"
-        required: true
-        default: "200"
-        type: string
-      densidade:
-        description: "Percentual inicial de células vivas"
-        required: true
-        default: "25"
-        type: string
       repeticoes:
-        description: "Repetições por tamanho de matriz"
+        description: "Repetições por entrada predefinida"
         required: true
         default: "10"
-        type: string
-      semente:
-        description: "Semente usada para gerar as entradas determinísticas"
-        required: true
-        default: "42"
         type: string
 
 permissions:
@@ -52,18 +32,10 @@ jobs:
       - name: Executar série de experimentos
         id: experimentos
         env:
-          TAMANHOS: ${{ inputs.tamanhos }}
-          GERACOES: ${{ inputs.geracoes }}
-          DENSIDADE: ${{ inputs.densidade }}
           REPETICOES: ${{ inputs.repeticoes }}
-          SEMENTE: ${{ inputs.semente }}
         run: |
           docker compose run --rm -T \
-            -e TAMANHOS \
-            -e GERACOES \
-            -e DENSIDADE \
             -e REPETICOES \
-            -e SEMENTE \
             -e GITHUB_ACTIONS \
             -e GITHUB_REPOSITORY \
             -e GITHUB_SHA \
@@ -72,13 +44,22 @@ jobs:
             -e RUNNER_NAME \
             dev make experiments
 
+      - name: Coletar perfil detalhado de memória e caches
+        id: perfil
+        if: steps.experimentos.outcome == 'success'
+        run: |
+          docker compose run --rm -T \
+            dev bash scripts/coletar_perfil_detalhado.sh
+
       - name: Gerar relatório final
         if: always()
         env:
           STATUS_EXECUCAO: ${{ steps.experimentos.outcome }}
+          STATUS_PERFIL: ${{ steps.perfil.outcome }}
         run: |
           docker compose run --rm -T \
             -e STATUS_EXECUCAO \
+            -e STATUS_PERFIL \
             -e GITHUB_ACTIONS \
             -e GITHUB_REPOSITORY \
             -e GITHUB_SHA \
@@ -104,8 +85,10 @@ jobs:
         with:
           name: experimentos-sequenciais-${{ github.run_id }}
           path: |
+            entradas/classicos/
+            entradas/aleatorias/
             resultados/sequencial/execucoes.csv
-            resultados/entradas/
+            resultados/perfil/
             resultados/resumo_execucao.md
           if-no-files-found: warn
           retention-days: 30

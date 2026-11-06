@@ -1,4 +1,5 @@
 CC := gcc
+PYTHON := python3
 
 CFLAGS := -std=c11 -O2 -Wall -Wextra -Wpedantic
 PTHREAD_FLAGS := -pthread
@@ -11,8 +12,12 @@ PARALLEL_BIN := $(BIN_DIR)/paralelo
 INPUT ?= entradas/exemplo.txt
 THREADS ?= 4
 EXPERIMENT_SCRIPT := scripts/executar_experimentos.sh
+SVG_SCRIPT := scripts/gerar_svg.py
+SVG_OUTPUT ?= resultados/visualizacoes/estado-final.svg
+RANDOM_INPUT_SCRIPT := scripts/gerar_entradas_aleatorias.py
+DETAILED_PROFILE_SCRIPT := scripts/coletar_perfil_detalhado.sh
 
-.PHONY: all run run-sequential experiments profile clean
+.PHONY: all run run-sequential visualizar-sequencial gerar-entradas-aleatorias experiments profile profile-detailed clean
 
 all: $(SEQUENTIAL_BIN)
 
@@ -31,6 +36,12 @@ run: $(PARALLEL_BIN)
 run-sequential: $(SEQUENTIAL_BIN)
 	$(SEQUENTIAL_BIN) $(INPUT)
 
+visualizar-sequencial: $(SEQUENTIAL_BIN)
+	$(SEQUENTIAL_BIN) $(INPUT) | $(PYTHON) $(SVG_SCRIPT) - --saida $(SVG_OUTPUT)
+
+gerar-entradas-aleatorias:
+	$(PYTHON) $(RANDOM_INPUT_SCRIPT)
+
 experiments: $(SEQUENTIAL_BIN)
 	bash $(EXPERIMENT_SCRIPT)
 
@@ -38,6 +49,9 @@ profile: CFLAGS += $(PROFILE_FLAGS)
 profile: clean $(SEQUENTIAL_BIN)
 	$(SEQUENTIAL_BIN) $(INPUT)
 	gprof $(SEQUENTIAL_BIN) gmon.out
+
+profile-detailed: $(SEQUENTIAL_BIN)
+	bash $(DETAILED_PROFILE_SCRIPT)
 
 clean:
 	rm -rf $(BIN_DIR) gmon.out
