@@ -5,6 +5,7 @@ set -euo pipefail
 diretorio_script="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 raiz_projeto="$(cd -- "$diretorio_script/.." && pwd)"
 binario="$raiz_projeto/bin/sequencial"
+binario_condicionador_cache="$raiz_projeto/bin/condicionar-cache"
 diretorio_entradas="$raiz_projeto/entradas"
 diretorio_resultados="$raiz_projeto/resultados"
 arquivo_resultados="$diretorio_resultados/sequencial/execucoes.csv"
@@ -12,9 +13,19 @@ arquivo_inicio="$diretorio_resultados/sequencial/inicio_execucao.txt"
 arquivo_relatorio="$diretorio_resultados/relatorio_experimentos.md"
 diretorio_temporario="$(mktemp -d)"
 
+source "$diretorio_script/suporte_experimentos.sh"
+
 trap 'rm -rf "$diretorio_temporario"' EXIT
 
 repeticoes="${REPETICOES:-5}"
+bytes_condicionamento_cache="$(obter_bytes_condicionamento_cache)"
+cache_condicionada=nao
+ordem_execucao=0
+execucao_anterior=nenhuma
+
+if ((bytes_condicionamento_cache > 0)); then
+    cache_condicionada=sim
+fi
 
 validar_inteiro_positivo()
 {
@@ -52,6 +63,14 @@ if [[ ! -x "$binario" ]]; then
     exit 1
 fi
 
+if ((bytes_condicionamento_cache > 0)) \
+    && [[ ! -x "$binario_condicionador_cache" ]]; then
+    printf 'Condicionador de cache não encontrado em %s.\n' \
+        "$binario_condicionador_cache" \
+        >&2
+    exit 1
+fi
+
 shopt -s nullglob
 arquivos_entrada=(
     "$diretorio_entradas/classicos/"*.txt
@@ -72,8 +91,13 @@ printf '%s\n%s\n' \
     "$(date +%s)" \
     > "$arquivo_inicio"
 
+printf 'cache_condicionada=%s\ncache_condicionamento_bytes=%d\n' \
+    "$cache_condicionada" \
+    "$bytes_condicionamento_cache" \
+    >> "$arquivo_inicio"
+
 printf '%s\n' \
-    'entrada,categoria,linhas,colunas,geracoes,rodada,celulas_vivas_iniciais,arquivo_entrada_bytes,memoria_matrizes_bytes,tempo_simulacao_segundos,tempo_usuario_segundos,tempo_sistema_segundos,tempo_parede_segundos,cpu_percentual,rss_maximo_kb,rss_medio_kb,memoria_total_media_kb,dados_nao_compartilhados_kb,pilha_media_kb,texto_compartilhado_kb,pagina_bytes,page_faults_maiores,page_faults_menores,swaps,trocas_contexto_voluntarias,trocas_contexto_involuntarias,leituras_sistema_arquivos,escritas_sistema_arquivos,status_saida' \
+    'entrada,categoria,linhas,colunas,geracoes,rodada,celulas_vivas_iniciais,arquivo_entrada_bytes,memoria_matrizes_bytes,tempo_simulacao_segundos,tempo_usuario_segundos,tempo_sistema_segundos,tempo_parede_segundos,cpu_percentual,rss_maximo_kb,rss_medio_kb,memoria_total_media_kb,dados_nao_compartilhados_kb,pilha_media_kb,texto_compartilhado_kb,pagina_bytes,page_faults_maiores,page_faults_menores,swaps,trocas_contexto_voluntarias,trocas_contexto_involuntarias,leituras_sistema_arquivos,escritas_sistema_arquivos,status_saida,ordem_execucao,execucao_anterior,cache_condicionada,cache_condicionamento_bytes' \
     > "$arquivo_resultados"
 
 total_execucoes=$((${#arquivos_entrada[@]} * repeticoes))
@@ -83,7 +107,18 @@ printf 'Entradas predefinidas: %d | Repetições: %d\n' \
     "$repeticoes"
 
 for ((rodada = 1; rodada <= repeticoes; rodada++)); do
-    for indice in "${!arquivos_entrada[@]}"; do
+    quantidade_entradas="${#arquivos_entrada[@]}"
+    deslocamento_entrada=$(((rodada - 1) % quantidade_entradas))
+
+    for ((posicao_entrada = 0;
+         posicao_entrada < quantidade_entradas;
+         posicao_entrada++)); do
+        if ((rodada % 2 == 1)); then
+            indice=$(((posicao_entrada + deslocamento_entrada) % quantidade_entradas))
+        else
+            indice=$(((deslocamento_entrada - posicao_entrada + quantidade_entradas) % quantidade_entradas))
+        fi
+
         arquivo_entrada="${arquivos_entrada[$indice]}"
         entrada_relativa="${arquivo_entrada#"$diretorio_entradas/"}"
         categoria="$(basename "$(dirname "$arquivo_entrada")")"
@@ -110,6 +145,13 @@ for ((rodada = 1; rodada <= repeticoes; rodada++)); do
             "$geracoes" \
             "$rodada" \
             "$repeticoes"
+
+        if ! condicionar_cache_antes_medicao \
+            "$binario_condicionador_cache" \
+            "$bytes_condicionamento_cache"; then
+            printf 'Não foi possível condicionar a cache antes da medição.\n' >&2
+            exit 1
+        fi
 
         if ! /usr/bin/time \
             --output="$arquivo_metricas" \
@@ -154,7 +196,9 @@ for ((rodada = 1; rodada <= repeticoes; rodada++)); do
 
         cpu_percentual="${cpu_percentual%\%}"
 
-        printf '%s,%s,%d,%d,%d,%d,%d,%d,%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+        ((ordem_execucao += 1))
+
+        printf '%s,%s,%d,%d,%d,%d,%d,%d,%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%s,%s,%d\n' \
             "$entrada_relativa" \
             "$categoria" \
             "$linhas" \
@@ -184,9 +228,62 @@ for ((rodada = 1; rodada <= repeticoes; rodada++)); do
             "$leituras_sistema_arquivos" \
             "$escritas_sistema_arquivos" \
             "$status_saida" \
+            "$ordem_execucao" \
+            "$execucao_anterior" \
+            "$cache_condicionada" \
+            "$bytes_condicionamento_cache" \
             >> "$arquivo_resultados"
+
+        execucao_anterior="${entrada_relativa}:sequencial:1"
     done
 done
+
+linhas_registradas="$(awk 'END { print NR - 1 }' "$arquivo_resultados")"
+
+if ((linhas_registradas != total_execucoes)); then
+    printf 'Foram registradas %d de %d execuções sequenciais planejadas.\n' \
+        "$linhas_registradas" \
+        "$total_execucoes" \
+        >&2
+    exit 1
+fi
+
+if ! awk -F, '
+    NR == 1 {
+        if (NF != 33) {
+            printf "Cabeçalho sequencial com %d de 33 colunas.\n", NF \
+                > "/dev/stderr"
+            erro = 1
+        }
+
+        next
+    }
+
+    {
+        if (NF != 33) {
+            printf "Linha %d do CSV sequencial com %d de 33 colunas.\n", \
+                NR, NF > "/dev/stderr"
+            erro = 1
+        }
+
+        if ($30 != NR - 1) {
+            printf "Ordem de execução inválida na linha %d.\n", NR \
+                > "/dev/stderr"
+            erro = 1
+        }
+
+        if (($32 == "sim" && $33 <= 0)
+            || ($32 == "nao" && $33 != 0)) {
+            printf "Condicionamento de cache inconsistente na linha %d.\n", NR \
+                > "/dev/stderr"
+            erro = 1
+        }
+    }
+
+    END { exit erro }
+' "$arquivo_resultados"; then
+    exit 1
+fi
 
 STATUS_EXECUCAO=sucesso bash \
     "$diretorio_script/gerar_relatorio_experimentos.sh"

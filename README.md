@@ -30,6 +30,11 @@ docker compose run --rm dev
 
 - `src/sequencial.c`: implementação de referência;
 - `src/paralelo.c`: implementação Pthreads;
+- `src/simulacao.h`: representação e kernel comuns às duas versões;
+- `src/condicionar_cache.c`: condicionamento controlado da cache entre medições;
+- `scripts/validar_equivalencia.sh`: comparação funcional antes dos benchmarks;
+- `scripts/validar_entradas_invalidas.sh`: verifica rejeição de entradas e parâmetros inválidos;
+- `scripts/suporte_experimentos.sh`: detecção e condicionamento da cache;
 - `scripts/executar_experimentos_sequenciais.sh`: série apenas sequencial;
 - `scripts/executar_experimentos_completos.sh`: comparação sequencial e paralela;
 - `scripts/coletar_perfil_sequencial.sh`: profiling detalhado da referência;
@@ -44,7 +49,8 @@ Compile as duas versões com:
 docker compose run --rm dev make
 ```
 
-Os executáveis `sequencial` e `paralelo` serão gerados na pasta `bin/`.
+Os executáveis `sequencial`, `paralelo` e `condicionar-cache` serão gerados na
+pasta `bin/`.
 
 ## Formato da entrada
 
@@ -214,16 +220,18 @@ docker compose run --rm \
   dev make experiments-sequential
 ```
 
-As execuções são intercaladas por rodada: primeiro todas as entradas executam
-a rodada inicial, depois todas executam a segunda rodada, e assim por diante.
-Isso distribui cada entrada ao longo da duração do experimento e reduz o viés
-de executar repetidas vezes consecutivas o mesmo arquivo e estado recente da
-máquina.
+As execuções são intercaladas por rodada. A entrada inicial e o sentido do
+percurso variam entre as rodadas, evitando que cada arquivo seja sempre medido
+depois do mesmo antecessor. Antes de cada processo temporizado, um programa
+auxiliar percorre um buffer maior que a maior cache de dados detectada. Essa
+etapa ocorre fora da medição e reduz a dependência do estado deixado pela
+execução anterior.
 
 Cada série gera:
 
 - `resultados/sequencial/execucoes.csv`, com o nome, a categoria, as dimensões
-  e todas as medições de cada entrada;
+  e todas as medições de cada entrada, incluindo a ordem, a execução
+  precedente e os parâmetros de condicionamento da cache;
 - `resultados/relatorio_experimentos.md`, com ambiente, médias, desvios-padrão,
   mínimos e máximos.
 
@@ -272,6 +280,25 @@ Não existe uma métrica genérica de "memória de registradores" em tempo de
 execução; o arquivo assembly mostra quais registradores foram escolhidos pelo
 compilador.
 
+## Validação funcional
+
+Antes de medir desempenho, compare as saídas sequencial e Pthreads e confirme
+que entradas e parâmetros inválidos são rejeitados:
+
+```bash
+docker compose run --rm \
+  -e THREADS_LISTA="1 2 4 8" \
+  dev make validate
+```
+
+Essa etapa inclui matrizes `1x1`, `1xN`, `Nx1`, quantidades pares e ímpares de
+gerações, divisões irregulares de linhas, uma thread por linha e entradas
+aleatórias com sementes fixas. Também verifica coordenadas repetidas ou fora dos
+limites, arquivos incompletos e quantidades inválidas de threads. A validação
+ocorre fora da série temporizada e interrompe o fluxo ao encontrar divergência.
+A lista de threads deve incluir `1`, usada como baseline da implementação
+Pthreads.
+
 ## Experimentos completos
 
 A série paralela executa as mesmas entradas na versão sequencial e na versão
@@ -292,26 +319,54 @@ docker compose run --rm \
 ```
 
 Valores maiores que a quantidade de linhas de uma entrada são ignorados para
-essa entrada. A série gera:
+essa entrada. A lista deve incluir uma thread para permitir o cálculo da
+escalabilidade interna da versão Pthreads. A série gera:
 
 - `resultados/experimentos_completos/execucoes.csv`, com as mesmas métricas de tempo, CPU,
   memória, paginação, contexto e I/O da série sequencial, além da quantidade de
-  threads, oversubscription e distribuição das linhas entre os workers;
-- `resultados/experimentos_completos/resumo_desempenho.csv`, com médias, desvios-padrão, mínimos,
-  máximos, speedup, eficiência, utilização de CPU, custo e sobrecusto;
+  threads, oversubscription, distribuição das linhas entre os workers, ordem da
+  medição, configuração precedente e condicionamento da cache;
+- `resultados/experimentos_completos/resumo_desempenho.csv`, com médias,
+  medianas, desvios-padrão, mínimos, máximos, speedup, eficiência, utilização de
+  CPU, custo e sobrecusto;
 - `resultados/experimentos_completos/ambiente_execucao.txt`, com os parâmetros, processadores lógicos,
   afinidade, processador, memória, compilador e sistema operacional.
 
 O speedup é calculado dividindo a média sequencial pela média paralela. A
 eficiência é calculada dividindo o speedup pela quantidade de threads. A versão
 sequencial é executada na mesma série para evitar comparar medições produzidas
-em máquinas ou momentos diferentes. Cinco repetições são usadas localmente por
-padrão, assim como na série sequencial. Cada rodada percorre todas as entradas
-antes de iniciar a próxima, e a ordem das configurações é invertida nas rodadas
-pares. Isso reduz tanto o viés de executar repetidamente a mesma entrada quanto
-o de executar sempre uma versão primeiro. A execução sequencial e a paralela
-com uma thread permanecem separadas, pois a segunda também inclui os custos de
-criação, sincronização e encerramento do worker.
+em máquinas ou momentos diferentes. O resumo também calcula o speedup de cada
+configuração em relação a Pthreads com uma thread, separando o ganho do kernel
+do ganho obtido ao aumentar os workers. Cinco repetições são usadas localmente
+por padrão, assim como na série sequencial. Cada rodada percorre todas as
+entradas antes de iniciar a próxima. O ponto inicial e o sentido do percurso
+variam, e as configurações são rotacionadas de acordo com a rodada e a entrada.
+Assim, sequencial e Pthreads ocupam posições diferentes e não mantêm sempre o
+mesmo predecessor. Um ciclo completo coloca cada configuração uma vez em cada
+posição; o ciclo seguinte usa o sentido inverso. A execução sequencial e a
+paralela com uma thread permanecem separadas, pois a segunda também inclui os
+custos de criação, sincronização e encerramento do worker.
+
+O condicionamento da cache é habilitado por padrão. O tamanho do buffer é quatro
+vezes a maior cache de dados detectada, limitado automaticamente entre 64 MiB e
+512 MiB. Para um estudo específico, ele pode ser desabilitado ou configurado:
+
+```bash
+docker compose run --rm \
+  -e CONDICIONAR_CACHE=0 \
+  dev make experiments-complete
+
+docker compose run --rm \
+  -e BYTES_CONDICIONAMENTO_CACHE=134217728 \
+  dev make experiments-complete
+```
+
+O condicionamento reduz a herança da cache compartilhada, mas não torna as
+medições absolutamente independentes. Frequência, temperatura, escalonamento e
+interferência do sistema continuam sendo controlados por repetições, ordem
+balanceada, medianas e registro do ambiente. A cache de arquivos do sistema não
+é descartada, pois a leitura da entrada ocorre fora do tempo da simulação e
+forçar sua limpeza afetaria toda a máquina.
 
 Antes de calcular o resumo, o script confere se todas as execuções planejadas
 foram registradas, se cada configuração possui a quantidade esperada de
@@ -324,10 +379,10 @@ quantidade de repetições e a lista de threads podem ser alteradas antes de
 iniciar a execução. As cargas de desempenho tornam essa série consideravelmente
 mais longa, e a duração depende do processador atribuído ao runner.
 
-O workflow compila as duas versões, executa a série completa, coleta o profiling
-sequencial e publica no resumo da execução as tabelas sequencial e paralela. As
-entradas, os CSVs, o ambiente, o profiling e o relatório são armazenados como
-artefato por 30 dias.
+O workflow compila as duas versões, valida equivalência e tratamento de erros,
+executa a série completa, coleta Cachegrind, Massif e `gprof`, e publica no
+resumo da execução as tabelas sequencial e paralela. As entradas, os CSVs, o
+ambiente, o profiling e o relatório são armazenados como artefato por 30 dias.
 
 ## Perfil de desempenho
 
@@ -338,10 +393,11 @@ docker compose run --rm dev make profile-sequential-gprof \
   INPUT=entradas/exemplo.txt
 ```
 
-Esse alvo recompila somente a versão sequencial com `-pg`, desativa o inlining e
-a substituição interprocedural de argumentos para preservar as funções no
-perfil, e omite a impressão do estado final durante a coleta. Os builds normais
-e os experimentos permanecem otimizados com `-O2`.
+Esse alvo gera um executável separado com `-pg`, desativa o inlining e a
+substituição interprocedural de argumentos para preservar as funções no perfil,
+omite a impressão do estado final e grava o resultado em
+`resultados/perfil_sequencial/gprof.txt`. Os executáveis usados nos experimentos
+permanecem separados e otimizados com `-O2`.
 
 ## Limpeza
 

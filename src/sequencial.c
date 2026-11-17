@@ -1,18 +1,12 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
-typedef struct {
-    int geracoes;
-    int linhas;
-    int colunas;
-    bool *celulas;
-} Mundo;
+#include "simulacao.h"
 
 static bool opcao_ativa(const char *nome)
 {
@@ -27,11 +21,6 @@ static double obter_tempo_atual(void)
 
     clock_gettime(CLOCK_MONOTONIC, &tempo);
     return (double)tempo.tv_sec + (double)tempo.tv_nsec / 1e9;
-}
-
-static size_t obter_indice(const Mundo *mundo, int linha, int coluna)
-{
-    return (size_t)linha * (size_t)mundo->colunas + (size_t)coluna;
 }
 
 static bool dimensoes_validas(int linhas, int colunas)
@@ -88,40 +77,6 @@ static bool ler_mundo(FILE *arquivo, Mundo *mundo)
     return true;
 }
 
-static int contar_vizinhas(const Mundo *mundo, int linha, int coluna)
-{
-    int quantidade = 0;
-
-    for (int deslocamento_linha = -1; deslocamento_linha <= 1; deslocamento_linha++) {
-        for (int deslocamento_coluna = -1; deslocamento_coluna <= 1; deslocamento_coluna++) {
-            if (deslocamento_linha == 0 && deslocamento_coluna == 0)
-                continue;
-
-            const int linha_vizinha = linha + deslocamento_linha;
-            const int coluna_vizinha = coluna + deslocamento_coluna;
-
-            if (linha_vizinha < 0
-                || linha_vizinha >= mundo->linhas
-                || coluna_vizinha < 0
-                || coluna_vizinha >= mundo->colunas) {
-                continue;
-            }
-
-            quantidade += mundo->celulas[
-                obter_indice(mundo, linha_vizinha, coluna_vizinha)
-            ];
-        }
-    }
-
-    return quantidade;
-}
-
-static bool calcular_estado(bool esta_viva, int quantidade_vizinhas)
-{
-    return quantidade_vizinhas == 3
-        || (esta_viva && quantidade_vizinhas == 2);
-}
-
 static int simular(Mundo *mundo)
 {
     if (mundo->geracoes == 0)
@@ -136,28 +91,23 @@ static int simular(Mundo *mundo)
     if (proxima_geracao == NULL)
         return EXIT_FAILURE;
 
+    bool *geracao_atual = mundo->celulas;
+
     for (int geracao = 0; geracao < mundo->geracoes; geracao++) {
-        for (int linha = 0; linha < mundo->linhas; linha++) {
-            for (int coluna = 0; coluna < mundo->colunas; coluna++) {
-                const size_t indice = obter_indice(mundo, linha, coluna);
-                const int quantidade_vizinhas = contar_vizinhas(
-                    mundo,
-                    linha,
-                    coluna
-                );
+        evoluir_intervalo(
+            mundo,
+            geracao_atual,
+            proxima_geracao,
+            0,
+            mundo->linhas
+        );
 
-                proxima_geracao[indice] = calcular_estado(
-                    mundo->celulas[indice],
-                    quantidade_vizinhas
-                );
-            }
-        }
-
-        bool *geracao_anterior = mundo->celulas;
-        mundo->celulas = proxima_geracao;
+        bool *geracao_anterior = geracao_atual;
+        geracao_atual = proxima_geracao;
         proxima_geracao = geracao_anterior;
     }
 
+    mundo->celulas = geracao_atual;
     free(proxima_geracao);
     return EXIT_SUCCESS;
 }

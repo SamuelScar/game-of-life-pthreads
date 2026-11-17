@@ -104,6 +104,11 @@ para escrita da próxima geração. Ao final de cada geração, os ponteiros sã
 trocados. Dessa forma, nenhuma célula utiliza estados que já tenham sido
 atualizados na mesma geração.
 
+O kernel que calcula um intervalo de linhas está em
+\path{src/simulacao.h} e é compartilhado com a versão Pthreads. A referência
+sequencial aplica esse kernel a todas as linhas, evitando que diferenças no
+cálculo das células sejam confundidas com ganhos de paralelização.
+
 Depois da última geração, o programa conta as células vivas e percorre a matriz
 em ordem de linhas e colunas para escrever suas coordenadas na saída padrão.
 
@@ -117,8 +122,11 @@ faltas nos caches simulados, e o Massif acompanha o uso de memória. A coleta
 detalhada também registra a topologia da CPU, a hierarquia de caches e o código
 assembly produzido pelo compilador.
 
-O script \texttt{scripts/coletar\_perfil\_sequencial.sh} concentra essa coleta e
-grava os artefatos em \texttt{resultados/perfil\_sequencial/}.
+O script \texttt{scripts/coletar\_perfil\_sequencial.sh} coleta Cachegrind,
+Massif, topologia e assembly. O alvo
+\texttt{profile-sequential-gprof} usa um executável instrumentado separado e
+grava o perfil em \path{resultados/perfil_sequencial/gprof.txt}. Assim, as
+opções de profiling não alteram os binários usados nos experimentos.
 
 \section{Oportunidades de paralelização}
 
@@ -150,6 +158,10 @@ workers após a criação, aguarda seus términos com \texttt{pthread\_join} e l
 os recursos. A quantidade de workers deve satisfazer $1 \leq P \leq L$, em que
 $L$ é a quantidade de linhas da matriz.
 
+As duas versões chamam o mesmo kernel para evoluir uma faixa de linhas. A
+diferença experimental fica concentrada na criação dos workers, na decomposição
+do domínio e na sincronização por barreira.
+
 \section{Avaliação de desempenho}
 
 A avaliação comparará os tempos médios das versões sequencial e paralela. O
@@ -165,6 +177,15 @@ em que $P$ representa a quantidade de threads. A eficiência será calculada por
     E(P) = \frac{S(P)}{P}.
 \end{equation}
 
+Para separar o ganho do kernel Pthreads do ganho causado pelo aumento de
+workers, também será calculada a escalabilidade relativa a uma thread:
+
+\begin{equation}
+    S_{1}(P) = \frac{T_{\mathrm{Pthreads}}(1)}{T_{\mathrm{Pthreads}}(P)},
+    \qquad
+    E_{1}(P) = \frac{S_{1}(P)}{P}.
+\end{equation}
+
 Os experimentos percorrem 18 entradas clássicas, 35 entradas pseudoaleatórias e
 seis cargas de desempenho, com matrizes quadradas e retangulares de diferentes
 dimensões, densidades e quantidades de gerações. A série local utiliza cinco
@@ -173,16 +194,33 @@ $P \in \{1,2,4,8\}$, com parâmetros configuráveis antes da execução.
 
 A versão sequencial é medida na mesma série e na mesma máquina das configurações
 paralelas. Cada rodada percorre todas as entradas antes do início da próxima, e
-a ordem das configurações é invertida nas rodadas pares. Isso reduz tanto o viés
-de executar repetidamente a mesma entrada quanto o de executar sempre uma versão
-primeiro. A leitura do arquivo e a escrita do estado final ficam fora do tempo
-interno da simulação, enquanto criação, sincronização e encerramento dos workers
-permanecem no tempo paralelo.
+o ponto inicial e o sentido do percurso variam entre as rodadas. Para cada
+entrada, as configurações também são rotacionadas, distribuindo as versões e as
+quantidades de threads entre diferentes posições da sequência. Em um ciclo
+completo, cada configuração ocupa cada posição uma vez; o ciclo seguinte utiliza
+o sentido inverso.
+
+Antes de cada processo medido, um programa auxiliar percorre um buffer quatro
+vezes maior que a maior cache de dados detectada, limitado entre 64 MiB e
+512 MiB. Esse condicionamento ocorre fora da região temporizada e reduz a
+dependência da cache compartilhada deixada pela execução anterior. A leitura do
+arquivo e a escrita do estado final também ficam fora do tempo interno da
+simulação, enquanto criação, sincronização e encerramento dos workers permanecem
+no tempo paralelo.
+
+O CSV registra a ordem global, a posição da configuração e a execução
+precedente. A independência absoluta não é garantida, pois frequência,
+temperatura, escalonamento e outras atividades do sistema permanecem
+compartilhados. Seus efeitos são reduzidos pelas repetições, pela ordem
+balanceada e pelo uso conjunto de média, mediana e dispersão. A cache de arquivos
+não é descartada, porque a leitura não participa do tempo da simulação e sua
+limpeza alteraria globalmente a máquina.
 
 Além das médias, são registrados desvio-padrão amostral, mínimo, máximo, uso de
 CPU, memória, falhas de página, trocas de contexto e operações de entrada e
-saída. Configurações com mais workers que processadores lógicos disponíveis são
-marcadas como oversubscription.
+saída. A mediana complementa a média por ser menos sensível a medições atípicas.
+Configurações com mais workers que processadores lógicos disponíveis são
+marcadas como oversubscription e devem ser interpretadas separadamente.
 
 \subsection{Automação e artefatos}
 
@@ -191,16 +229,19 @@ todas as execuções, o resumo de desempenho e a descrição do ambiente em
 \path{resultados/experimentos_completos/}. O relatório Markdown é gerado por
 \path{scripts/gerar_relatorio_experimentos.sh}.
 
-O workflow \texttt{experimentos-completos.yml} compila as duas versões, executa
-a série completa, coleta o perfil sequencial e publica o relatório e os dados
-brutos como artefato. Esse fluxo mantém a referência sequencial e as medições
-Pthreads no mesmo runner.
+O workflow \texttt{experimentos-completos.yml} compila as duas versões, compara
+as saídas em casos de borda e entradas pseudoaleatórias, verifica a rejeição de
+entradas inválidas, executa os experimentos, coleta Cachegrind, Massif e
+\texttt{gprof}, e publica o relatório e os dados brutos como artefato. Esse fluxo
+mantém a referência sequencial e as medições Pthreads no mesmo runner.
 
 \section{Conclusões}
 
 As versões sequencial e Pthreads, a automação dos experimentos e a coleta das
-métricas estão implementadas. As conclusões quantitativas sobre escalabilidade,
-speedup e eficiência serão preenchidas a partir dos resultados da execução
-completa no mesmo ambiente de hardware.
+métricas estão implementadas. A comparação utiliza um kernel comum e registra
+tanto o ganho contra a referência sequencial quanto a escalabilidade interna da
+versão Pthreads. As conclusões quantitativas serão preenchidas após a execução
+definitiva em uma máquina com núcleos suficientes para as configurações
+avaliadas.
 
 \end{document}

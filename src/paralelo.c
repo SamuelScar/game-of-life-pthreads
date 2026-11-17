@@ -3,19 +3,13 @@
 #include <errno.h>
 #include <limits.h>
 #include <pthread.h>
-#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
-typedef struct {
-    int geracoes;
-    int linhas;
-    int colunas;
-    bool *celulas;
-} Mundo;
+#include "simulacao.h"
 
 typedef struct {
     Mundo *mundo;
@@ -46,11 +40,6 @@ static double obter_tempo_atual(void)
 
     clock_gettime(CLOCK_MONOTONIC, &tempo);
     return (double)tempo.tv_sec + (double)tempo.tv_nsec / 1e9;
-}
-
-static size_t obter_indice(const Mundo *mundo, int linha, int coluna)
-{
-    return (size_t)linha * (size_t)mundo->colunas + (size_t)coluna;
 }
 
 static bool dimensoes_validas(int linhas, int colunas)
@@ -126,45 +115,6 @@ static bool ler_quantidade_threads(const char *texto, int *quantidade_threads)
     return true;
 }
 
-static int contar_vizinhas(
-    const Mundo *mundo,
-    const bool *celulas,
-    int linha,
-    int coluna
-)
-{
-    int quantidade = 0;
-
-    for (int deslocamento_linha = -1; deslocamento_linha <= 1; deslocamento_linha++) {
-        for (int deslocamento_coluna = -1; deslocamento_coluna <= 1; deslocamento_coluna++) {
-            if (deslocamento_linha == 0 && deslocamento_coluna == 0)
-                continue;
-
-            const int linha_vizinha = linha + deslocamento_linha;
-            const int coluna_vizinha = coluna + deslocamento_coluna;
-
-            if (linha_vizinha < 0
-                || linha_vizinha >= mundo->linhas
-                || coluna_vizinha < 0
-                || coluna_vizinha >= mundo->colunas) {
-                continue;
-            }
-
-            quantidade += celulas[
-                obter_indice(mundo, linha_vizinha, coluna_vizinha)
-            ];
-        }
-    }
-
-    return quantidade;
-}
-
-static bool calcular_estado(bool esta_viva, int quantidade_vizinhas)
-{
-    return quantidade_vizinhas == 3
-        || (esta_viva && quantidade_vizinhas == 2);
-}
-
 static bool aguardar_inicio(SimulacaoParalela *simulacao)
 {
     pthread_mutex_lock(&simulacao->mutex_inicio);
@@ -191,22 +141,13 @@ static void *executar_worker(void *argumento)
     bool *proxima_geracao = simulacao->proxima_geracao;
 
     for (int geracao = 0; geracao < mundo->geracoes; geracao++) {
-        for (int linha = worker->linha_inicial; linha < worker->linha_final; linha++) {
-            for (int coluna = 0; coluna < mundo->colunas; coluna++) {
-                const size_t indice = obter_indice(mundo, linha, coluna);
-                const int quantidade_vizinhas = contar_vizinhas(
-                    mundo,
-                    geracao_atual,
-                    linha,
-                    coluna
-                );
-
-                proxima_geracao[indice] = calcular_estado(
-                    geracao_atual[indice],
-                    quantidade_vizinhas
-                );
-            }
-        }
+        evoluir_intervalo(
+            mundo,
+            geracao_atual,
+            proxima_geracao,
+            worker->linha_inicial,
+            worker->linha_final
+        );
 
         pthread_barrier_wait(&simulacao->barreira);
 

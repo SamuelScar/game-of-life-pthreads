@@ -59,6 +59,8 @@ versao_gcc="$(gcc --version 2>/dev/null | sed -n '1p' || true)"
 versao_gcc="${versao_gcc:-indisponivel}"
 status_execucao="${STATUS_EXECUCAO:-concluida}"
 status_perfil="${STATUS_PERFIL:-nao_informado}"
+cache_condicionada=indisponivel
+cache_condicionamento_bytes=indisponivel
 quantidade_execucoes=0
 quantidade_execucoes_paralelas=0
 quantidade_entradas=0
@@ -96,6 +98,29 @@ if [[ -f "$arquivo_resultados_completo" ]]; then
     )"
 fi
 
+if ((coluna_versao == 30)) && [[ -f "$arquivo_ambiente_paralelo" ]]; then
+    cache_condicionada="$(
+        awk -F= '$1 == "cache_condicionada" { print $2; exit }' \
+            "$arquivo_ambiente_paralelo"
+    )"
+    cache_condicionamento_bytes="$(
+        awk -F= '$1 == "cache_condicionamento_bytes" { print $2; exit }' \
+            "$arquivo_ambiente_paralelo"
+    )"
+elif [[ -f "$arquivo_inicio" ]]; then
+    cache_condicionada="$(
+        awk -F= '$1 == "cache_condicionada" { print $2; exit }' \
+            "$arquivo_inicio"
+    )"
+    cache_condicionamento_bytes="$(
+        awk -F= '$1 == "cache_condicionamento_bytes" { print $2; exit }' \
+            "$arquivo_inicio"
+    )"
+fi
+
+cache_condicionada="${cache_condicionada:-indisponivel}"
+cache_condicionamento_bytes="${cache_condicionamento_bytes:-indisponivel}"
+
 {
     printf '# Resumo da execução dos experimentos\n\n'
     printf -- '- Status: `%s`\n' "$status_execucao"
@@ -117,6 +142,10 @@ fi
     printf '| Processadores lógicos | %s |\n' "$cpus_logicas"
     printf '| Memória total | %s |\n' "$memoria_total"
     printf '| Compilador | %s |\n' "$versao_gcc"
+    printf '| Cache condicionada antes de cada medição | %s |\n' \
+        "$cache_condicionada"
+    printf '| Buffer de condicionamento da cache (bytes) | %s |\n' \
+        "$cache_condicionamento_bytes"
 
     if [[ "${GITHUB_ACTIONS:-false}" == "true" ]]; then
         printf '| Repositório | %s |\n' "${GITHUB_REPOSITORY:-indisponivel}"
@@ -191,11 +220,11 @@ fi
     printf '\n## Resultados paralelos\n\n'
 
     if [[ -s "$arquivo_resumo_paralelo" ]]; then
-        printf '| Entrada | Linhas | Colunas | Threads | Rodadas | Sequencial médio (s) | Paralelo médio (s) | Desvio paralelo (s) | Speedup | Eficiência | CPU média | Núcleos médios | RSS máximo médio (MiB) | Oversubscription | Linhas por worker |\n'
-        printf '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|\n'
+        printf '| Entrada | Linhas | Colunas | Threads | Rodadas | Sequencial médio (s) | Mediana sequencial (s) | Paralelo médio (s) | Mediana paralela (s) | Speedup sequencial | Speedup Pthreads 1 | Eficiência sequencial | Eficiência Pthreads 1 | CPU média | Núcleos médios | RSS máximo médio (MiB) | Oversubscription | Linhas por worker |\n'
+        printf '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|\n'
         awk -F, 'NR > 1 {
-            printf "| `%s` | %d | %d | %d | %d | %.9f | %.9f | %.9f | %.6f | %.2f%% | %.3f%% | %.3f | %.3f | %s | %d-%d |\n",
-                $1, $3, $4, $6, $7, $8, $12, $13, $16, $18, $19, $20, $21, $24, $25, $26
+            printf "| `%s` | %d | %d | %d | %d | %.9f | %.9f | %.9f | %.9f | %.6f | %.6f | %.2f%% | %.2f%% | %.3f%% | %.3f | %.3f | %s | %d-%d |\n",
+                $1, $3, $4, $6, $7, $8, $27, $12, $28, $16, $30, $18, $32, $19, $20, $21, $24, $25, $26
         }' "$arquivo_resumo_paralelo"
     else
         printf 'Nenhum resultado paralelo foi encontrado.\n'
@@ -208,6 +237,9 @@ fi
             "$(< "$diretorio_resultados/perfil_sequencial/entrada.txt")"
         printf -- '- Cachegrind: referências a instruções e dados, faltas de cache e desvios de fluxo.\n'
         printf -- '- Massif: evolução e pico do uso de heap e pilha.\n'
+        if [[ -s "$diretorio_resultados/perfil_sequencial/gprof.txt" ]]; then
+            printf -- '- gprof: tempo de CPU e quantidade de chamadas por função.\n'
+        fi
         printf -- '- Assembly: instruções geradas e registradores escolhidos pelo compilador.\n'
         printf -- '- Sistema: topologia de caches e snapshots de RAM e memória virtual.\n'
 
@@ -226,13 +258,17 @@ fi
 
     printf '\n## Observações\n\n'
     printf -- '- Os tempos incluem somente a simulação das gerações.\n'
+    printf -- '- O condicionamento da cache ocorre antes do processo medido e não entra no tempo da simulação.\n'
+    printf -- '- A ordem das entradas e configurações varia entre as rodadas; o CSV registra a posição e a execução precedente.\n'
     printf -- '- A leitura da entrada e a escrita do estado final não fazem parte da medição.\n'
     printf -- '- As entradas são arquivos predefinidos e versionados no repositório.\n'
     printf -- '- O CSV completo contém métricas de memória, CPU, paginação, contexto e I/O por execução.\n'
     printf -- '- As métricas do Cachegrind representam uma simulação dos caches, não contadores físicos do processador.\n'
     printf -- '- O desvio-padrão amostral indica a variação dos tempos entre as rodadas.\n'
+    printf -- '- A mediana reduz a influência de medições atípicas na interpretação.\n'
     printf -- '- O speedup é a média sequencial dividida pela média paralela da mesma entrada.\n'
     printf -- '- A eficiência é o speedup dividido pela quantidade de threads.\n'
+    printf -- '- O speedup Pthreads 1 compara cada configuração com a versão Pthreads de uma thread.\n'
     printf -- '- Configurações com mais threads que processadores lógicos disponíveis são marcadas como oversubscription.\n'
 } > "$arquivo_relatorio"
 

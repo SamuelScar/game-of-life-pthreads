@@ -6,6 +6,7 @@ diretorio_script="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 raiz_projeto="$(cd -- "$diretorio_script/.." && pwd)"
 binario_sequencial="$raiz_projeto/bin/sequencial"
 binario_paralelo="$raiz_projeto/bin/paralelo"
+binario_condicionador_cache="$raiz_projeto/bin/condicionar-cache"
 diretorio_entradas="$raiz_projeto/entradas"
 diretorio_resultados="$raiz_projeto/resultados/experimentos_completos"
 arquivo_execucoes="$diretorio_resultados/execucoes.csv"
@@ -15,11 +16,20 @@ diretorio_temporario="$(mktemp -d)"
 processadores_logicos="$(nproc)"
 inicio_epoch="$(date +%s)"
 numero_execucao=0
+execucao_anterior=nenhuma
+
+source "$diretorio_script/suporte_experimentos.sh"
 
 trap 'rm -rf "$diretorio_temporario"' EXIT
 
 repeticoes="${REPETICOES:-5}"
 threads_lista="${THREADS_LISTA:-1 2 4 8}"
+bytes_condicionamento_cache="$(obter_bytes_condicionamento_cache)"
+cache_condicionada=nao
+
+if ((bytes_condicionamento_cache > 0)); then
+    cache_condicionada=sim
+fi
 
 validar_inteiro_positivo()
 {
@@ -64,6 +74,8 @@ registrar_execucao()
     local arquivo_entrada="${10}"
     local tamanho_arquivo="${11}"
     local memoria_matrizes="${12}"
+    local posicao_configuracao="${13}"
+    local execucao_precedente="${14}"
     local arquivo_erro
     local arquivo_metricas
     local tempo
@@ -116,6 +128,13 @@ registrar_execucao()
         "$rodada" \
         "$repeticoes"
 
+    if ! condicionar_cache_antes_medicao \
+        "$binario_condicionador_cache" \
+        "$bytes_condicionamento_cache"; then
+        printf 'Não foi possível condicionar a cache antes da medição.\n' >&2
+        exit 1
+    fi
+
     if ! /usr/bin/time \
         --output="$arquivo_metricas" \
         --format='%U,%S,%e,%P,%M,%t,%K,%D,%p,%X,%Z,%F,%R,%W,%w,%c,%I,%O,%x' \
@@ -167,7 +186,7 @@ registrar_execucao()
         exit 1
     fi
 
-    printf '%s,%s,%d,%d,%d,%d,%d,%d,%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%s,%d,%d\n' \
+    printf '%s,%s,%d,%d,%d,%d,%d,%d,%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%s,%d,%d,%d,%d,%s,%s,%d\n' \
         "$entrada_relativa" \
         "$categoria" \
         "$linhas" \
@@ -202,6 +221,11 @@ registrar_execucao()
         "$oversubscription" \
         "$linhas_min_worker" \
         "$linhas_max_worker" \
+        "$numero_execucao" \
+        "$posicao_configuracao" \
+        "$execucao_precedente" \
+        "$cache_condicionada" \
+        "$bytes_condicionamento_cache" \
         >> "$arquivo_execucoes"
 }
 
@@ -227,12 +251,25 @@ for quantidade_threads in "${quantidades_threads[@]}"; do
     threads_informadas[$quantidade_threads]=1
 done
 
+if [[ -z "${threads_informadas[1]:-}" ]]; then
+    printf 'THREADS_LISTA deve incluir 1 para calcular a escalabilidade relativa.\n' >&2
+    exit 1
+fi
+
 for binario in "$binario_sequencial" "$binario_paralelo"; do
     if [[ ! -x "$binario" ]]; then
         printf 'Executável não encontrado em %s.\n' "$binario" >&2
         exit 1
     fi
 done
+
+if ((bytes_condicionamento_cache > 0)) \
+    && [[ ! -x "$binario_condicionador_cache" ]]; then
+    printf 'Condicionador de cache não encontrado em %s.\n' \
+        "$binario_condicionador_cache" \
+        >&2
+    exit 1
+fi
 
 shopt -s nullglob
 arquivos_entrada=(
@@ -254,6 +291,9 @@ mkdir -p "$diretorio_resultados"
     printf 'inicio_epoch=%s\n' "$inicio_epoch"
     printf 'threads_lista=%s\n' "$threads_lista"
     printf 'repeticoes=%s\n' "$repeticoes"
+    printf 'cache_condicionada=%s\n' "$cache_condicionada"
+    printf 'cache_condicionamento_bytes=%d\n' "$bytes_condicionamento_cache"
+    printf 'ordem_configuracoes=rotacao_balanceada\n'
     printf 'processadores_logicos_disponiveis=%s\n' "$processadores_logicos"
     printf 'cpus_permitidas=%s\n' "$(awk '/Cpus_allowed_list/ { print $2 }' /proc/self/status)"
     printf 'carga_media_inicial=%s\n' "$(cut -d' ' -f1-3 /proc/loadavg)"
@@ -275,7 +315,7 @@ mkdir -p "$diretorio_resultados"
 } > "$arquivo_ambiente"
 
 printf '%s\n' \
-    'entrada,categoria,linhas,colunas,geracoes,rodada,celulas_vivas_iniciais,arquivo_entrada_bytes,memoria_matrizes_bytes,tempo_simulacao_segundos,tempo_usuario_segundos,tempo_sistema_segundos,tempo_parede_segundos,cpu_percentual,rss_maximo_kb,rss_medio_kb,memoria_total_media_kb,dados_nao_compartilhados_kb,pilha_media_kb,texto_compartilhado_kb,pagina_bytes,page_faults_maiores,page_faults_menores,swaps,trocas_contexto_voluntarias,trocas_contexto_involuntarias,leituras_sistema_arquivos,escritas_sistema_arquivos,status_saida,versao,threads,oversubscription,linhas_min_worker,linhas_max_worker' \
+    'entrada,categoria,linhas,colunas,geracoes,rodada,celulas_vivas_iniciais,arquivo_entrada_bytes,memoria_matrizes_bytes,tempo_simulacao_segundos,tempo_usuario_segundos,tempo_sistema_segundos,tempo_parede_segundos,cpu_percentual,rss_maximo_kb,rss_medio_kb,memoria_total_media_kb,dados_nao_compartilhados_kb,pilha_media_kb,texto_compartilhado_kb,pagina_bytes,page_faults_maiores,page_faults_menores,swaps,trocas_contexto_voluntarias,trocas_contexto_involuntarias,leituras_sistema_arquivos,escritas_sistema_arquivos,status_saida,versao,threads,oversubscription,linhas_min_worker,linhas_max_worker,ordem_execucao,posicao_configuracao,execucao_anterior,cache_condicionada,cache_condicionamento_bytes' \
     > "$arquivo_execucoes"
 
 total_execucoes=0
@@ -302,7 +342,19 @@ printf 'Entradas: %d | Repetições: %d | Threads: %s\n' \
     "$threads_lista"
 
 for ((rodada = 1; rodada <= repeticoes; rodada++)); do
-    for arquivo_entrada in "${arquivos_entrada[@]}"; do
+    quantidade_entradas="${#arquivos_entrada[@]}"
+    deslocamento_entrada=$(((rodada - 1) % quantidade_entradas))
+
+    for ((posicao_entrada = 0;
+         posicao_entrada < quantidade_entradas;
+         posicao_entrada++)); do
+        if ((rodada % 2 == 1)); then
+            indice_entrada=$(((posicao_entrada + deslocamento_entrada) % quantidade_entradas))
+        else
+            indice_entrada=$(((deslocamento_entrada - posicao_entrada + quantidade_entradas) % quantidade_entradas))
+        fi
+
+        arquivo_entrada="${arquivos_entrada[$indice_entrada]}"
         entrada_relativa="${arquivo_entrada#"$diretorio_entradas/"}"
         categoria="$(basename "$(dirname "$arquivo_entrada")")"
         geracoes="$(sed -n '1p' "$arquivo_entrada")"
@@ -326,17 +378,23 @@ for ((rodada = 1; rodada <= repeticoes; rodada++)); do
             fi
         done
 
-        for ((posicao = 0; posicao < ${#configuracoes[@]}; posicao++)); do
-            indice_configuracao="$posicao"
+        quantidade_configuracoes="${#configuracoes[@]}"
+        deslocamento_configuracao=$(((rodada + indice_entrada - 1) % quantidade_configuracoes))
+        ciclo_configuracao=$(((rodada - 1) / quantidade_configuracoes))
 
-            if ((rodada % 2 == 0)); then
-                indice_configuracao=$((${#configuracoes[@]} - posicao - 1))
+        for ((posicao = 0; posicao < quantidade_configuracoes; posicao++)); do
+            if ((ciclo_configuracao % 2 == 0)); then
+                indice_configuracao=$(((posicao + deslocamento_configuracao) % quantidade_configuracoes))
+            else
+                indice_configuracao=$(((deslocamento_configuracao - posicao + quantidade_configuracoes) % quantidade_configuracoes))
             fi
 
             IFS=: read -r versao quantidade_threads \
                 <<< "${configuracoes[$indice_configuracao]}"
 
             ((numero_execucao += 1))
+
+            posicao_configuracao=$((posicao + 1))
 
             registrar_execucao \
                 "$entrada_relativa" \
@@ -350,7 +408,11 @@ for ((rodada = 1; rodada <= repeticoes; rodada++)); do
                 "$rodada" \
                 "$arquivo_entrada" \
                 "$tamanho_arquivo" \
-                "$memoria_matrizes"
+                "$memoria_matrizes" \
+                "$posicao_configuracao" \
+                "$execucao_anterior"
+
+            execucao_anterior="${entrada_relativa}:${versao}:${quantidade_threads}"
         done
     done
 done
@@ -362,6 +424,43 @@ if ((linhas_registradas != total_execucoes)); then
         "$linhas_registradas" \
         "$total_execucoes" \
         >&2
+    exit 1
+fi
+
+if ! awk -F, '
+    NR == 1 {
+        if (NF != 39) {
+            printf "Cabeçalho completo com %d de 39 colunas.\n", NF \
+                > "/dev/stderr"
+            erro = 1
+        }
+
+        next
+    }
+
+    {
+        if (NF != 39) {
+            printf "Linha %d do CSV completo com %d de 39 colunas.\n", \
+                NR, NF > "/dev/stderr"
+            erro = 1
+        }
+
+        if ($35 != NR - 1) {
+            printf "Ordem de execução inválida na linha %d.\n", NR \
+                > "/dev/stderr"
+            erro = 1
+        }
+
+        if (($38 == "sim" && $39 <= 0)
+            || ($38 == "nao" && $39 != 0)) {
+            printf "Condicionamento de cache inconsistente na linha %d.\n", NR \
+                > "/dev/stderr"
+            erro = 1
+        }
+    }
+
+    END { exit erro }
+' "$arquivo_execucoes"; then
     exit 1
 fi
 
@@ -392,13 +491,39 @@ fi
 
 {
     printf '%s\n' \
-        'entrada,categoria,linhas,colunas,geracoes,threads,repeticoes,media_sequencial_segundos,desvio_sequencial_segundos,minimo_sequencial_segundos,maximo_sequencial_segundos,media_paralela_segundos,desvio_paralelo_segundos,minimo_paralelo_segundos,maximo_paralelo_segundos,speedup,eficiencia,eficiencia_percentual,cpu_paralela_media_percentual,nucleos_cpu_medios,rss_maximo_paralelo_medio_mib,custo_paralelo_segundos,sobrecusto_segundos,oversubscription,linhas_min_worker,linhas_max_worker'
+        'entrada,categoria,linhas,colunas,geracoes,threads,repeticoes,media_sequencial_segundos,desvio_sequencial_segundos,minimo_sequencial_segundos,maximo_sequencial_segundos,media_paralela_segundos,desvio_paralelo_segundos,minimo_paralelo_segundos,maximo_paralelo_segundos,speedup,eficiencia,eficiencia_percentual,cpu_paralela_media_percentual,nucleos_cpu_medios,rss_maximo_paralelo_medio_mib,custo_paralelo_segundos,sobrecusto_segundos,oversubscription,linhas_min_worker,linhas_max_worker,mediana_sequencial_segundos,mediana_paralela_segundos,media_pthreads_1_segundos,speedup_vs_pthreads_1,eficiencia_vs_pthreads_1,eficiencia_vs_pthreads_1_percentual'
 
     awk -F, '
+        function calcular_mediana(chave, quantidade, valores, copia, i, j, temporario) {
+            for (i in copia)
+                delete copia[i]
+
+            for (i = 1; i <= quantidade; i++)
+                copia[i] = valores[chave SUBSEP i]
+
+            for (i = 2; i <= quantidade; i++) {
+                temporario = copia[i]
+                j = i - 1
+
+                while (j >= 1 && copia[j] > temporario) {
+                    copia[j + 1] = copia[j]
+                    j--
+                }
+
+                copia[j + 1] = temporario
+            }
+
+            if (quantidade % 2 == 1)
+                return copia[(quantidade + 1) / 2]
+
+            return (copia[quantidade / 2] + copia[quantidade / 2 + 1]) / 2
+        }
+
         NR > 1 && $30 == "sequencial" {
             soma_sequencial[$1] += $10
             soma_quadrados_sequencial[$1] += $10 * $10
             quantidade_sequencial[$1]++
+            tempos_sequenciais[$1 SUBSEP quantidade_sequencial[$1]] = $10
             categoria[$1] = $2
             linhas[$1] = $3
             colunas[$1] = $4
@@ -418,6 +543,7 @@ fi
             soma_cpu_paralela[chave] += $14
             soma_rss_paralela[chave] += $15
             quantidade_paralela[chave]++
+            tempos_paralelos[chave SUBSEP quantidade_paralela[chave]] = $10
             oversubscription[chave] = $32
             linhas_min_worker[chave] = $33
             linhas_max_worker[chave] = $34
@@ -434,8 +560,10 @@ fi
                 split(chave, campos, SUBSEP)
                 entrada = campos[1]
                 threads = campos[2]
+                chave_pthreads_1 = entrada SUBSEP 1
                 media_sequencial = soma_sequencial[entrada] / quantidade_sequencial[entrada]
                 media_paralela = soma_paralela[chave] / quantidade_paralela[chave]
+                media_pthreads_1 = soma_paralela[chave_pthreads_1] / quantidade_paralela[chave_pthreads_1]
                 variancia_sequencial = quantidade_sequencial[entrada] > 1 \
                     ? (soma_quadrados_sequencial[entrada] - quantidade_sequencial[entrada] * media_sequencial * media_sequencial) / (quantidade_sequencial[entrada] - 1) \
                     : 0
@@ -444,14 +572,18 @@ fi
                     : 0
                 desvio_sequencial = variancia_sequencial > 0 ? sqrt(variancia_sequencial) : 0
                 desvio_paralelo = variancia_paralela > 0 ? sqrt(variancia_paralela) : 0
+                mediana_sequencial = calcular_mediana(entrada, quantidade_sequencial[entrada], tempos_sequenciais)
+                mediana_paralela = calcular_mediana(chave, quantidade_paralela[chave], tempos_paralelos)
                 speedup = media_paralela > 0 ? media_sequencial / media_paralela : 0
                 eficiencia = threads > 0 ? speedup / threads : 0
+                speedup_pthreads_1 = media_paralela > 0 ? media_pthreads_1 / media_paralela : 0
+                eficiencia_pthreads_1 = threads > 0 ? speedup_pthreads_1 / threads : 0
                 cpu_media = soma_cpu_paralela[chave] / quantidade_paralela[chave]
                 rss_medio_mib = soma_rss_paralela[chave] / quantidade_paralela[chave] / 1024
                 custo_paralelo = threads * media_paralela
                 sobrecusto = custo_paralelo - media_sequencial
 
-                printf "%s,%s,%d,%d,%d,%d,%d,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.6f,%.6f,%.2f,%.3f,%.3f,%.3f,%.9f,%.9f,%s,%d,%d\n", \
+                printf "%s,%s,%d,%d,%d,%d,%d,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.6f,%.6f,%.2f,%.3f,%.3f,%.3f,%.9f,%.9f,%s,%d,%d,%.9f,%.9f,%.9f,%.6f,%.6f,%.2f\n", \
                     entrada,
                     categoria[entrada],
                     linhas[entrada],
@@ -477,7 +609,13 @@ fi
                     sobrecusto,
                     oversubscription[chave],
                     linhas_min_worker[chave],
-                    linhas_max_worker[chave]
+                    linhas_max_worker[chave],
+                    mediana_sequencial,
+                    mediana_paralela,
+                    media_pthreads_1,
+                    speedup_pthreads_1,
+                    eficiencia_pthreads_1,
+                    eficiencia_pthreads_1 * 100
             }
         }
     ' "$arquivo_execucoes" | sort -t, -k1,1 -k6,6n
@@ -490,6 +628,67 @@ if ((linhas_resumo != total_resumos_esperados)); then
         "$linhas_resumo" \
         "$total_resumos_esperados" \
         >&2
+    exit 1
+fi
+
+if ! awk -F, '
+    function absoluto(valor) {
+        return valor < 0 ? -valor : valor
+    }
+
+    NR == 1 {
+        if (NF != 32) {
+            printf "Cabeçalho do resumo com %d de 32 colunas.\n", NF \
+                > "/dev/stderr"
+            erro = 1
+        }
+
+        next
+    }
+
+    {
+        if (NF != 32) {
+            printf "Linha %d do resumo com %d de 32 colunas.\n", NR, NF \
+                > "/dev/stderr"
+            erro = 1
+        }
+
+        if ($12 <= 0 || absoluto($16 - $8 / $12) > 0.00001) {
+            printf "Speedup inconsistente na linha %d do resumo.\n", NR \
+                > "/dev/stderr"
+            erro = 1
+        }
+
+        if ($6 <= 0 || absoluto($17 - $16 / $6) > 0.00001) {
+            printf "Eficiência inconsistente na linha %d do resumo.\n", NR \
+                > "/dev/stderr"
+            erro = 1
+        }
+
+        if ($12 <= 0 || absoluto($30 - $29 / $12) > 0.00001) {
+            printf "Speedup Pthreads 1 inconsistente na linha %d.\n", NR \
+                > "/dev/stderr"
+            erro = 1
+        }
+
+        entradas[$1] = 1
+
+        if ($6 == 1)
+            possui_pthreads_1[$1] = 1
+    }
+
+    END {
+        for (entrada in entradas) {
+            if (!(entrada in possui_pthreads_1)) {
+                printf "Baseline Pthreads 1 ausente para %s.\n", entrada \
+                    > "/dev/stderr"
+                erro = 1
+            }
+        }
+
+        exit erro
+    }
+' "$arquivo_resumo"; then
     exit 1
 fi
 

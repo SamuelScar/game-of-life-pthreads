@@ -34,6 +34,14 @@ jobs:
       - name: Construir ambiente
         run: docker compose build dev
 
+      - name: Validar comportamento das implementações
+        env:
+          THREADS_LISTA: ${{ inputs.threads_lista }}
+        run: |
+          docker compose run --rm -T \
+            -e THREADS_LISTA \
+            dev make validate
+
       - name: Executar série completa de experimentos
         id: experimentos
         env:
@@ -51,12 +59,15 @@ jobs:
             -e RUNNER_NAME \
             dev make experiments-complete
 
-      - name: Coletar perfil detalhado de memória e caches
+      - name: Coletar perfil sequencial
         id: perfil
         if: steps.experimentos.outcome == 'success'
         run: |
           docker compose run --rm -T \
-            dev bash scripts/coletar_perfil_sequencial.sh
+            dev make profile-sequential-detailed
+          docker compose run --rm -T \
+            dev make profile-sequential-gprof \
+              INPUT=entradas/aleatorias/quadrada-256x256-d10-s602.txt
 
       - name: Gerar relatório final
         if: always()

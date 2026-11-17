@@ -14,4 +14,4 @@ docs/*.synctex.gz
 docs/*.toc
 
 # Decisoes locais de desenvolvimento
-docs/decisoes-paralelizacao.md
+docs/decisoes-tecnicas.md
