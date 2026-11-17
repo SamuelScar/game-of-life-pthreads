@@ -1,11 +1,8 @@
 # game-of-life-pthreads
 
 Implementações sequencial e paralela do Jogo da Vida de Conway em C. A versão
-sequencial calcula as gerações em uma única thread. A versão paralela utilizará
-Pthreads, decomposição de domínio e sincronização por barreiras.
-
-Atualmente, o projeto contém a infraestrutura base e a implementação
-sequencial. A versão paralela será adicionada na próxima etapa.
+sequencial calcula as gerações em uma única thread. A versão paralela utiliza
+Pthreads, decomposição horizontal do domínio e sincronização por barreiras.
 
 ## Requisitos
 
@@ -29,15 +26,25 @@ Para abrir um terminal no container:
 docker compose run --rm dev
 ```
 
+## Organização
+
+- `src/sequencial.c`: implementação de referência;
+- `src/paralelo.c`: implementação Pthreads;
+- `scripts/executar_experimentos_sequenciais.sh`: série apenas sequencial;
+- `scripts/executar_experimentos_completos.sh`: comparação sequencial e paralela;
+- `scripts/coletar_perfil_sequencial.sh`: profiling detalhado da referência;
+- `scripts/gerar_relatorio_experimentos.sh`: relatório Markdown das medições;
+- `.github/workflows/experimentos-completos.yml`: automação da série completa.
+
 ## Compilação
 
-Compile a versão sequencial com:
+Compile as duas versões com:
 
 ```bash
 docker compose run --rm dev make
 ```
 
-O executável será gerado na pasta `bin/`.
+Os executáveis `sequencial` e `paralelo` serão gerados na pasta `bin/`.
 
 ## Formato da entrada
 
@@ -73,10 +80,12 @@ docker compose run --rm dev make run-sequential INPUT=entradas/exemplo.txt
 O estado final é escrito na saída padrão no mesmo formato da entrada. A
 quantidade de células vivas e as coordenadas correspondem à última geração.
 
-O comando da versão paralela será:
+Execute a versão paralela informando também a quantidade de threads:
 
 ```bash
-docker compose run --rm dev make run INPUT=entradas/exemplo.txt THREADS=4
+docker compose run --rm dev make run-parallel \
+  INPUT=entradas/exemplo.txt \
+  THREADS=4
 ```
 
 ## Visualização do estado final
@@ -85,7 +94,7 @@ A saída oficial permanece no formato textual definido pelo trabalho. Para gerar
 uma representação visual separada em SVG, execute:
 
 ```bash
-docker compose run --rm dev make visualizar-sequencial INPUT=entradas/exemplo.txt
+docker compose run --rm dev make visualize-sequential INPUT=entradas/exemplo.txt
 ```
 
 O arquivo será criado em
@@ -93,7 +102,7 @@ O arquivo será criado em
 com `SVG_OUTPUT`:
 
 ```bash
-docker compose run --rm dev make visualizar-sequencial \
+docker compose run --rm dev make visualize-sequential \
   INPUT=entradas/exemplo.txt \
   SVG_OUTPUT=resultados/visualizacoes/exemplo.svg
 ```
@@ -163,7 +172,7 @@ Essas entradas e as cargas de desempenho descritas a seguir podem ser recriadas
 com:
 
 ```bash
-docker compose run --rm dev make gerar-entradas-aleatorias
+docker compose run --rm dev make generate-random-inputs
 ```
 
 ### Entradas de desempenho
@@ -174,14 +183,14 @@ retangulares entre 1024 × 1024 e 8192 × 8192, com até 500 gerações. A maior
 configuração utiliza aproximadamente 128 MiB nas duas matrizes da simulação.
 
 Essas entradas foram dimensionadas para produzir execuções sequenciais com
-duração suficiente para comparar speedup e eficiência da futura versão com
-Pthreads. Com dez repetições, elas acrescentam aproximadamente 99,6 bilhões de
-atualizações de célula à série completa.
+duração suficiente para comparar speedup e eficiência da versão com Pthreads.
+Com dez repetições, elas acrescentam aproximadamente 99,6 bilhões de
+atualizações de célula à série sequencial.
 
 Qualquer uma delas pode ser usada com a visualização. Por exemplo:
 
 ```bash
-docker compose run --rm dev make visualizar-sequencial \
+docker compose run --rm dev make visualize-sequential \
   INPUT=entradas/classicos/planador.txt \
   SVG_OUTPUT=resultados/visualizacoes/planador.svg
 ```
@@ -194,7 +203,7 @@ próprias dimensões, quantidade de gerações e células vivas iniciais. Por pa
 cada entrada é executada cinco vezes localmente:
 
 ```bash
-docker compose run --rm dev make experiments
+docker compose run --rm dev make experiments-sequential
 ```
 
 A quantidade de repetições pode ser personalizada:
@@ -202,36 +211,24 @@ A quantidade de repetições pode ser personalizada:
 ```bash
 docker compose run --rm \
   -e REPETICOES=3 \
-  dev make experiments
+  dev make experiments-sequential
 ```
 
 As execuções são intercaladas por rodada: primeiro todas as entradas executam
 a rodada inicial, depois todas executam a segunda rodada, e assim por diante.
 Isso distribui cada entrada ao longo da duração do experimento e reduz o viés
-de executar dez vezes consecutivas com o mesmo arquivo e estado recente da
+de executar repetidas vezes consecutivas o mesmo arquivo e estado recente da
 máquina.
 
 Cada série gera:
 
 - `resultados/sequencial/execucoes.csv`, com o nome, a categoria, as dimensões
   e todas as medições de cada entrada;
-- `resultados/resumo_execucao.md`, com ambiente, médias, desvios-padrão,
+- `resultados/relatorio_experimentos.md`, com ambiente, médias, desvios-padrão,
   mínimos e máximos.
 
-O workflow `Experimentos sequenciais` é iniciado manualmente no GitHub Actions.
-Por padrão, ele executa cada entrada predefinida dez vezes. O único parâmetro do
-workflow é a quantidade de repetições. Com as cargas de desempenho, a execução
-completa pode levar dezenas de minutos, dependendo do processador atribuído ao
-runner.
-
-O relatório é publicado no resumo da execução e os resultados são armazenados
-como artefato por 30 dias. Ele apresenta média, desvio-padrão amostral, mínimo e
-máximo de cada entrada. Os próprios arquivos usados também fazem parte do
-artefato para manter a execução reproduzível.
-
 Os tempos incluem somente a simulação das gerações. A leitura do arquivo e a
-escrita do estado final ficam fora da medição. Speedup e eficiência serão
-adicionados quando a versão paralela estiver disponível.
+escrita do estado final ficam fora da medição.
 
 ### Métricas de recursos
 
@@ -252,7 +249,7 @@ Cada execução da série registra no CSV:
 
 O workflow também executa um profiling detalhado sobre
 `entradas/aleatorias/quadrada-256x256-d10-s602.txt`. Essa etapa gera em
-`resultados/perfil/`:
+`resultados/perfil_sequencial/`:
 
 - `cachegrind-resumo.txt`, com referências a instruções, leituras, escritas,
   faltas nos caches simulados e desvios de fluxo;
@@ -266,7 +263,7 @@ O workflow também executa um profiling detalhado sobre
 O profiling detalhado pode ser executado localmente depois da compilação:
 
 ```bash
-docker compose run --rm dev make profile-detailed
+docker compose run --rm dev make profile-sequential-detailed
 ```
 
 O Cachegrind simula a hierarquia de caches. Seus números não são contadores
@@ -275,12 +272,64 @@ Não existe uma métrica genérica de "memória de registradores" em tempo de
 execução; o arquivo assembly mostra quais registradores foram escolhidos pelo
 compilador.
 
+## Experimentos completos
+
+A série paralela executa as mesmas entradas na versão sequencial e na versão
+Pthreads. Por padrão, cada entrada é repetida cinco vezes com 1, 2, 4 e 8
+threads:
+
+```bash
+docker compose run --rm dev make experiments-complete
+```
+
+A quantidade de repetições e a lista de threads podem ser personalizadas:
+
+```bash
+docker compose run --rm \
+  -e REPETICOES=3 \
+  -e THREADS_LISTA="1 2 3 4 6 8" \
+  dev make experiments-complete
+```
+
+Valores maiores que a quantidade de linhas de uma entrada são ignorados para
+essa entrada. A série gera:
+
+- `resultados/experimentos_completos/execucoes.csv`, com as mesmas métricas de tempo, CPU,
+  memória, paginação, contexto e I/O da série sequencial, além da quantidade de
+  threads, oversubscription e distribuição das linhas entre os workers;
+- `resultados/experimentos_completos/resumo_desempenho.csv`, com médias, desvios-padrão, mínimos,
+  máximos, speedup, eficiência, utilização de CPU, custo e sobrecusto;
+- `resultados/experimentos_completos/ambiente_execucao.txt`, com os parâmetros, processadores lógicos,
+  afinidade, processador, memória, compilador e sistema operacional.
+
+O speedup é calculado dividindo a média sequencial pela média paralela. A
+eficiência é calculada dividindo o speedup pela quantidade de threads. A versão
+sequencial é executada na mesma série para evitar comparar medições produzidas
+em máquinas ou momentos diferentes. Cinco repetições são usadas localmente por
+padrão, assim como na série sequencial. A ordem das configurações é invertida
+nas rodadas pares para reduzir o viés de executar sempre uma versão primeiro.
+A execução sequencial e a paralela com uma thread permanecem separadas, pois a
+segunda também inclui os custos de criação, sincronização e encerramento do
+worker.
+
+O workflow `Experimentos completos` é iniciado manualmente no GitHub Actions.
+Por padrão, ele executa cada configuração dez vezes com 1, 2, 4 e 8 threads. A
+quantidade de repetições e a lista de threads podem ser alteradas antes de
+iniciar a execução. As cargas de desempenho tornam essa série consideravelmente
+mais longa, e a duração depende do processador atribuído ao runner.
+
+O workflow compila as duas versões, executa a série completa, coleta o profiling
+sequencial e publica no resumo da execução as tabelas sequencial e paralela. As
+entradas, os CSVs, o ambiente, o profiling e o relatório são armazenados como
+artefato por 30 dias.
+
 ## Perfil de desempenho
 
 Gere o perfil da versão sequencial com `gprof`:
 
 ```bash
-docker compose run --rm dev make profile INPUT=entradas/exemplo.txt
+docker compose run --rm dev make profile-sequential-gprof \
+  INPUT=entradas/exemplo.txt
 ```
 
 ## Limpeza

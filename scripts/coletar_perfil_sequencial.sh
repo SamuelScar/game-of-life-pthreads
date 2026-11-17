@@ -6,7 +6,7 @@ diretorio_script="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 raiz_projeto="$(cd -- "$diretorio_script/.." && pwd)"
 binario="$raiz_projeto/bin/sequencial"
 entrada="${ENTRADA_PERFIL:-$raiz_projeto/entradas/aleatorias/quadrada-256x256-d10-s602.txt}"
-diretorio_saida="$raiz_projeto/resultados/perfil"
+diretorio_saida="$raiz_projeto/resultados/perfil_sequencial"
 
 if [[ ! -x "$binario" ]]; then
     printf 'Executável sequencial não encontrado em %s.\n' "$binario" >&2

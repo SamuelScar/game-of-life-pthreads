@@ -54,11 +54,11 @@
 \section{Introdução}
 
 Este trabalho apresenta o desenvolvimento de versões sequencial e paralela do
-Jogo da Vida de Conway. A versão paralela utilizará Pthreads e o modelo de
+Jogo da Vida de Conway. A versão paralela utiliza Pthreads e o modelo de
 memória compartilhada para distribuir a atualização da matriz entre diferentes
 threads.
 
-O desenvolvimento será acompanhado pelo perfil da versão sequencial, pela
+O desenvolvimento é acompanhado pelo perfil da versão sequencial, pela
 identificação das oportunidades de paralelização e pela avaliação do desempenho
 com diferentes tamanhos de matriz e quantidades de threads.
 
@@ -79,9 +79,9 @@ As regras de evolução são:
 
 \section{Entrada e saída}
 
-A aplicação receberá o caminho de um arquivo contendo a quantidade de gerações,
+A aplicação recebe o caminho de um arquivo contendo a quantidade de gerações,
 as dimensões da matriz, a quantidade inicial de células vivas e suas
-coordenadas. O estado final do mundo será escrito na saída padrão no mesmo
+coordenadas. O estado final do mundo é escrito na saída padrão no mesmo
 formato definido para a entrada.
 
 As coordenadas são interpretadas como linha e coluna, com índices iniciados em
@@ -109,28 +109,44 @@ em ordem de linhas e colunas para escrever suas coordenadas na saída padrão.
 
 \section{Perfil de desempenho sequencial}
 
-O perfil da versão sequencial será obtido com a ferramenta \texttt{gprof}. A
-análise identificará os trechos de maior custo computacional e servirá como
-referência para a estratégia de paralelização.
+O perfil da versão sequencial é obtido com \texttt{gprof}, Cachegrind e Massif.
+O primeiro identifica as funções que concentram o tempo de CPU, o Cachegrind
+analisa referências e faltas nos caches simulados, e o Massif acompanha o uso de
+memória. A coleta detalhada também registra a topologia da CPU, a hierarquia de
+caches e o código assembly produzido pelo compilador.
+
+O script \texttt{scripts/coletar\_perfil\_sequencial.sh} concentra essa coleta e
+grava os artefatos em \texttt{resultados/perfil\_sequencial/}.
 
 \section{Oportunidades de paralelização}
 
 A principal oportunidade de paralelização está na atualização das células da
-matriz. Como cada célula da próxima geração depende apenas do estado da geração
-atual, diferentes regiões podem ser calculadas simultaneamente.
+matriz. Como cada célula da próxima geração depende apenas do estado imutável da
+geração atual, diferentes regiões podem ser calculadas simultaneamente.
 
-A estratégia adotada e os desafios relacionados às células de fronteira serão
-documentados durante a implementação da versão paralela.
+A matriz é armazenada por linhas; por isso, a decomposição em faixas horizontais
+contíguas favorece a localidade de memória. As escritas são independentes, pois
+cada worker atualiza apenas sua faixa na matriz da próxima geração. As leituras
+podem alcançar faixas vizinhas, mas utilizam somente a matriz da geração atual.
 
 \section{Estratégia de paralelização com Pthreads}
 
-A matriz será dividida em seções, e cada thread será responsável pela
-atualização das células de sua região. Barreiras serão utilizadas para
-sincronizar as threads entre gerações e impedir que uma nova geração comece
-antes da conclusão da anterior.
+A matriz é dividida estaticamente em faixas horizontais. O quociente da divisão
+da quantidade de linhas por $P$ define o tamanho base, e as linhas restantes são
+distribuídas entre os primeiros workers. Assim, a diferença entre a maior e a
+menor faixa é de no máximo uma linha.
 
-Os detalhes da decomposição de domínio, das estruturas compartilhadas e da
-sincronização serão apresentados após a implementação da versão paralela.
+O programa cria $P$ workers persistentes, sem contar a thread principal. Duas
+matrizes booleanas contíguas são compartilhadas: uma é lida como geração atual e
+a outra recebe a próxima geração. Cada worker escreve somente em sua própria
+faixa. Uma barreira reutilizável ao final de cada geração garante que nenhum
+worker troque os papéis das matrizes enquanto outro ainda calcula a geração
+anterior.
+
+A thread principal realiza a entrada e a saída, libera simultaneamente os
+workers após a criação, aguarda seus términos com \texttt{pthread\_join} e libera
+os recursos. A quantidade de workers deve satisfazer $1 \leq P \leq L$, em que
+$L$ é a quantidade de linhas da matriz.
 
 \section{Avaliação de desempenho}
 
@@ -147,17 +163,40 @@ em que $P$ representa a quantidade de threads. A eficiência será calculada por
     E(P) = \frac{S(P)}{P}.
 \end{equation}
 
-Os tamanhos de matriz, as quantidades de gerações, o número de repetições e as
-quantidades de threads serão definidos antes da execução dos experimentos.
+Os experimentos percorrem 18 entradas clássicas, 35 entradas pseudoaleatórias e
+seis cargas de desempenho, com matrizes quadradas e retangulares de diferentes
+dimensões, densidades e quantidades de gerações. A série local utiliza cinco
+repetições por padrão. No GitHub Actions são usadas dez repetições e
+$P \in \{1,2,4,8\}$, com parâmetros configuráveis antes da execução.
 
-Enquanto apenas a versão sequencial estiver disponível, os experimentos serão
-utilizados para estabelecer a linha de base. Cada configuração será repetida,
-e serão registradas a média, o menor tempo e o maior tempo observado. A leitura
-do arquivo e a escrita do estado final não farão parte do tempo medido.
+A versão sequencial é medida na mesma série e na mesma máquina das configurações
+paralelas. A ordem das configurações é invertida nas rodadas pares para reduzir
+o viés de executar sempre uma versão primeiro. A leitura do arquivo e a escrita
+do estado final ficam fora do tempo interno da simulação, enquanto criação,
+sincronização e encerramento dos workers permanecem no tempo paralelo.
+
+Além das médias, são registrados desvio-padrão amostral, mínimo, máximo, uso de
+CPU, memória, falhas de página, trocas de contexto e operações de entrada e
+saída. Configurações com mais workers que processadores lógicos disponíveis são
+marcadas como oversubscription.
+
+\subsection{Automação e artefatos}
+
+O script \path{scripts/executar_experimentos_completos.sh} produz o CSV com
+todas as execuções, o resumo de desempenho e a descrição do ambiente em
+\path{resultados/experimentos_completos/}. O relatório Markdown é gerado por
+\path{scripts/gerar_relatorio_experimentos.sh}.
+
+O workflow \texttt{experimentos-completos.yml} compila as duas versões, executa
+a série completa, coleta o perfil sequencial e publica o relatório e os dados
+brutos como artefato. Esse fluxo mantém a referência sequencial e as medições
+Pthreads no mesmo runner.
 
 \section{Conclusões}
 
-Esta seção será completada após a implementação das duas versões e a análise
-dos resultados experimentais.
+As versões sequencial e Pthreads, a automação dos experimentos e a coleta das
+métricas estão implementadas. As conclusões quantitativas sobre escalabilidade,
+speedup e eficiência serão preenchidas a partir dos resultados da execução
+completa no mesmo ambiente de hardware.
 
 \end{document}

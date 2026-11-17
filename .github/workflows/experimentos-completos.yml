@@ -1,4 +1,4 @@
-name: Experimentos sequenciais
+name: Experimentos completos
 
 on:
   workflow_dispatch:
@@ -8,19 +8,24 @@ on:
         required: true
         default: "10"
         type: string
+      threads_lista:
+        description: "Quantidades de threads separadas por espaço"
+        required: true
+        default: "1 2 4 8"
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: experimentos-sequenciais
+  group: experimentos-completos
   cancel-in-progress: false
 
 jobs:
   executar:
-    name: Executar experimentos sequenciais
+    name: Executar sequencial e Pthreads
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 360
 
     steps:
       - name: Baixar repositório
@@ -29,27 +34,29 @@ jobs:
       - name: Construir ambiente
         run: docker compose build dev
 
-      - name: Executar série de experimentos
+      - name: Executar série completa de experimentos
         id: experimentos
         env:
           REPETICOES: ${{ inputs.repeticoes }}
+          THREADS_LISTA: ${{ inputs.threads_lista }}
         run: |
           docker compose run --rm -T \
             -e REPETICOES \
+            -e THREADS_LISTA \
             -e GITHUB_ACTIONS \
             -e GITHUB_REPOSITORY \
             -e GITHUB_SHA \
             -e GITHUB_RUN_ID \
             -e GITHUB_RUN_ATTEMPT \
             -e RUNNER_NAME \
-            dev make experiments
+            dev make experiments-complete
 
       - name: Coletar perfil detalhado de memória e caches
         id: perfil
         if: steps.experimentos.outcome == 'success'
         run: |
           docker compose run --rm -T \
-            dev bash scripts/coletar_perfil_detalhado.sh
+            dev bash scripts/coletar_perfil_sequencial.sh
 
       - name: Gerar relatório final
         if: always()
@@ -66,12 +73,12 @@ jobs:
             -e GITHUB_RUN_ID \
             -e GITHUB_RUN_ATTEMPT \
             -e RUNNER_NAME \
-            dev bash scripts/gerar_relatorio.sh
+            dev bash scripts/gerar_relatorio_experimentos.sh
 
       - name: Publicar resumo da execução
         if: always()
         run: |
-          relatorio="resultados/resumo_execucao.md"
+          relatorio="resultados/relatorio_experimentos.md"
 
           if [[ -f "$relatorio" ]]; then
             cat "$relatorio" >> "$GITHUB_STEP_SUMMARY"
@@ -83,14 +90,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: experimentos-sequenciais-${{ github.run_id }}
+          name: experimentos-completos-${{ github.run_id }}
           path: |
             entradas/classicos/
             entradas/aleatorias/
             entradas/desempenho/
-            resultados/sequencial/execucoes.csv
-            resultados/perfil/
-            resultados/resumo_execucao.md
+            resultados/experimentos_completos/
+            resultados/perfil_sequencial/
+            resultados/relatorio_experimentos.md
           if-no-files-found: warn
           retention-days: 30
           compression-level: 9

@@ -8,7 +8,8 @@ binario="$raiz_projeto/bin/sequencial"
 diretorio_entradas="$raiz_projeto/entradas"
 diretorio_resultados="$raiz_projeto/resultados"
 arquivo_resultados="$diretorio_resultados/sequencial/execucoes.csv"
-arquivo_inicio="$diretorio_resultados/inicio_execucao.txt"
+arquivo_inicio="$diretorio_resultados/sequencial/inicio_execucao.txt"
+arquivo_relatorio="$diretorio_resultados/relatorio_experimentos.md"
 diretorio_temporario="$(mktemp -d)"
 
 trap 'rm -rf "$diretorio_temporario"' EXIT
@@ -187,9 +188,10 @@ for ((rodada = 1; rodada <= repeticoes; rodada++)); do
     done
 done
 
-STATUS_EXECUCAO=sucesso bash "$diretorio_script/gerar_relatorio.sh"
+STATUS_EXECUCAO=sucesso bash \
+    "$diretorio_script/gerar_relatorio_experimentos.sh"
 
 printf '%s\n' \
     'Experimentos sequenciais finalizados.' \
     "Resultados: $arquivo_resultados" \
-    "Relatório: $diretorio_resultados/resumo_execucao.md"
+    "Relatório: $arquivo_relatorio"

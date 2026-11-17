@@ -5,16 +5,29 @@ set -euo pipefail
 diretorio_script="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 raiz_projeto="$(cd -- "$diretorio_script/.." && pwd)"
 diretorio_resultados="$raiz_projeto/resultados"
-arquivo_resultados="$diretorio_resultados/sequencial/execucoes.csv"
-arquivo_inicio="$diretorio_resultados/inicio_execucao.txt"
-arquivo_relatorio="$diretorio_resultados/resumo_execucao.md"
+arquivo_resultados_sequencial="$diretorio_resultados/sequencial/execucoes.csv"
+arquivo_resultados_completo="$diretorio_resultados/experimentos_completos/execucoes.csv"
+arquivo_resumo_paralelo="$diretorio_resultados/experimentos_completos/resumo_desempenho.csv"
+arquivo_ambiente_paralelo="$diretorio_resultados/experimentos_completos/ambiente_execucao.txt"
+arquivo_inicio="$diretorio_resultados/sequencial/inicio_execucao.txt"
+arquivo_relatorio="$diretorio_resultados/relatorio_experimentos.md"
+arquivo_resultados="$arquivo_resultados_sequencial"
+coluna_versao=0
+
+if [[ -f "$arquivo_resultados_completo" ]]; then
+    arquivo_resultados="$arquivo_resultados_completo"
+    coluna_versao=30
+fi
 
 mkdir -p "$diretorio_resultados"
 
 inicio_iso="indisponivel"
 inicio_epoch=""
 
-if [[ -f "$arquivo_inicio" ]]; then
+if ((coluna_versao == 30)) && [[ -f "$arquivo_ambiente_paralelo" ]]; then
+    inicio_iso="$(awk -F= '$1 == "inicio_utc" { print $2; exit }' "$arquivo_ambiente_paralelo")"
+    inicio_epoch="$(awk -F= '$1 == "inicio_epoch" { print $2; exit }' "$arquivo_ambiente_paralelo")"
+elif [[ -f "$arquivo_inicio" ]]; then
     inicio_iso="$(sed -n '1p' "$arquivo_inicio")"
     inicio_epoch="$(sed -n '2p' "$arquivo_inicio")"
 fi
@@ -47,15 +60,24 @@ versao_gcc="${versao_gcc:-indisponivel}"
 status_execucao="${STATUS_EXECUCAO:-concluida}"
 status_perfil="${STATUS_PERFIL:-nao_informado}"
 quantidade_execucoes=0
+quantidade_execucoes_paralelas=0
 quantidade_entradas=0
 
 if [[ -f "$arquivo_resultados" ]]; then
     quantidade_execucoes="$(
-        awk 'END { print (NR > 0 ? NR - 1 : 0) }' "$arquivo_resultados"
+        awk -F, -v coluna_versao="$coluna_versao" '
+            NR > 1 && (coluna_versao == 0 || $coluna_versao == "sequencial") {
+                quantidade++
+            }
+
+            END { print quantidade + 0 }
+        ' "$arquivo_resultados"
     )"
     quantidade_entradas="$(
-        awk -F, '
-            NR > 1 && !($1 in entradas) {
+        awk -F, -v coluna_versao="$coluna_versao" '
+            NR > 1 \
+                && (coluna_versao == 0 || $coluna_versao == "sequencial") \
+                && !($1 in entradas) {
                 entradas[$1] = 1
                 quantidade++
             }
@@ -63,6 +85,14 @@ if [[ -f "$arquivo_resultados" ]]; then
             END { print quantidade + 0 }
         ' \
             "$arquivo_resultados"
+    )"
+fi
+
+if [[ -f "$arquivo_resultados_completo" ]]; then
+    quantidade_execucoes_paralelas="$(
+        awk -F, 'NR > 1 && $30 == "paralelo" { quantidade++ }
+            END { print quantidade + 0 }
+        ' "$arquivo_resultados_completo"
     )"
 fi
 
@@ -74,6 +104,7 @@ fi
     printf -- '- Duração total: `%s`\n' "$duracao_total"
     printf -- '- Entradas predefinidas: `%d`\n' "$quantidade_entradas"
     printf -- '- Execuções sequenciais: `%d`\n' "$quantidade_execucoes"
+    printf -- '- Execuções paralelas: `%d`\n' "$quantidade_execucoes_paralelas"
     printf -- '- Perfil detalhado: `%s`\n\n' "$status_perfil"
 
     printf '## Ambiente de execução\n\n'
@@ -101,8 +132,8 @@ fi
     if [[ -s "$arquivo_resultados" ]]; then
         printf '| Entrada | Categoria | Linhas | Colunas | Gerações | Células iniciais | Rodadas | Simulação média (s) | Desvio-padrão (s) | Mínimo (s) | Máximo (s) | RSS máximo médio (MiB) | Falhas maiores médias | Falhas menores médias | Trocas voluntárias médias | Trocas involuntárias médias |\n'
         printf '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n'
-        awk -F, '
-            NR > 1 {
+        awk -F, -v coluna_versao="$coluna_versao" '
+            NR > 1 && (coluna_versao == 0 || $coluna_versao == "sequencial") {
                 chave = $1 SUBSEP $2 SUBSEP $3 SUBSEP $4 SUBSEP $5 SUBSEP $7
                 quantidade[chave]++
                 soma[chave] += $10
@@ -157,24 +188,37 @@ fi
         printf 'Nenhum resultado sequencial foi encontrado.\n'
     fi
 
+    printf '\n## Resultados paralelos\n\n'
+
+    if [[ -s "$arquivo_resumo_paralelo" ]]; then
+        printf '| Entrada | Linhas | Colunas | Threads | Rodadas | Sequencial médio (s) | Paralelo médio (s) | Desvio paralelo (s) | Speedup | Eficiência | CPU média | Núcleos médios | RSS máximo médio (MiB) | Oversubscription | Linhas por worker |\n'
+        printf '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|\n'
+        awk -F, 'NR > 1 {
+            printf "| `%s` | %d | %d | %d | %d | %.9f | %.9f | %.9f | %.6f | %.2f%% | %.3f%% | %.3f | %.3f | %s | %d-%d |\n",
+                $1, $3, $4, $6, $7, $8, $12, $13, $16, $18, $19, $20, $21, $24, $25, $26
+        }' "$arquivo_resumo_paralelo"
+    else
+        printf 'Nenhum resultado paralelo foi encontrado.\n'
+    fi
+
     printf '\n## Perfil detalhado\n\n'
 
-    if [[ -f "$diretorio_resultados/perfil/entrada.txt" ]]; then
+    if [[ -f "$diretorio_resultados/perfil_sequencial/entrada.txt" ]]; then
         printf -- '- Entrada analisada: `%s`\n' \
-            "$(< "$diretorio_resultados/perfil/entrada.txt")"
+            "$(< "$diretorio_resultados/perfil_sequencial/entrada.txt")"
         printf -- '- Cachegrind: referências a instruções e dados, faltas de cache e desvios de fluxo.\n'
         printf -- '- Massif: evolução e pico do uso de heap e pilha.\n'
         printf -- '- Assembly: instruções geradas e registradores escolhidos pelo compilador.\n'
         printf -- '- Sistema: topologia de caches e snapshots de RAM e memória virtual.\n'
 
-        if [[ -s "$diretorio_resultados/perfil/caches.csv" ]]; then
+        if [[ -s "$diretorio_resultados/perfil_sequencial/caches.csv" ]]; then
             printf '\n### Hierarquia de caches\n\n'
             printf '| Índice | Nível | Tipo | Tamanho | Linha (bytes) | Conjuntos | Vias | CPUs compartilhadas |\n'
             printf '|---|---:|---|---:|---:|---:|---:|---|\n'
             awk -F, 'NR > 1 {
                 printf "| %s | %s | %s | %s | %s | %s | %s | %s |\n",
                     $1, $2, $3, $4, $5, $6, $7, $8
-            }' "$diretorio_resultados/perfil/caches.csv"
+            }' "$diretorio_resultados/perfil_sequencial/caches.csv"
         fi
     else
         printf 'O perfil detalhado não foi coletado.\n'
@@ -187,7 +231,9 @@ fi
     printf -- '- O CSV completo contém métricas de memória, CPU, paginação, contexto e I/O por execução.\n'
     printf -- '- As métricas do Cachegrind representam uma simulação dos caches, não contadores físicos do processador.\n'
     printf -- '- O desvio-padrão amostral indica a variação dos tempos entre as rodadas.\n'
-    printf -- '- Speedup e eficiência serão calculados após a implementação paralela.\n'
+    printf -- '- O speedup é a média sequencial dividida pela média paralela da mesma entrada.\n'
+    printf -- '- A eficiência é o speedup dividido pela quantidade de threads.\n'
+    printf -- '- Configurações com mais threads que processadores lógicos disponíveis são marcadas como oversubscription.\n'
 } > "$arquivo_relatorio"
 
 printf 'Relatorio gerado em %s\n' "$arquivo_relatorio"
