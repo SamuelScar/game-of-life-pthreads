@@ -14,6 +14,7 @@ arquivo_ambiente="$diretorio_resultados/ambiente_execucao.txt"
 diretorio_temporario="$(mktemp -d)"
 processadores_logicos="$(nproc)"
 inicio_epoch="$(date +%s)"
+numero_execucao=0
 
 trap 'rm -rf "$diretorio_temporario"' EXIT
 
@@ -90,8 +91,8 @@ registrar_execucao()
     local linhas_max_worker=0
     local -a comando
 
-    arquivo_erro="$diretorio_temporario/${versao}-${quantidade_threads}-${rodada}.txt"
-    arquivo_metricas="$diretorio_temporario/metricas-${versao}-${quantidade_threads}-${rodada}.csv"
+    arquivo_erro="$diretorio_temporario/erro-${numero_execucao}.txt"
+    arquivo_metricas="$diretorio_temporario/metricas-${numero_execucao}.csv"
 
     if [[ "$versao" == "sequencial" ]]; then
         comando=("$binario_sequencial" "$arquivo_entrada")
@@ -156,6 +157,15 @@ registrar_execucao()
         < "$arquivo_metricas"
 
     cpu_percentual="${cpu_percentual%\%}"
+
+    if [[ "$status_saida" != "0" ]]; then
+        printf 'Status de saída inválido para %s, versão %s, com %s thread(s).\n' \
+            "$entrada_relativa" \
+            "$versao" \
+            "$quantidade_threads" \
+            >&2
+        exit 1
+    fi
 
     printf '%s,%s,%d,%d,%d,%d,%d,%d,%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%s,%d,%d\n' \
         "$entrada_relativa" \
@@ -269,6 +279,7 @@ printf '%s\n' \
     > "$arquivo_execucoes"
 
 total_execucoes=0
+total_resumos_esperados=0
 
 for arquivo_entrada in "${arquivos_entrada[@]}"; do
     linhas="$(sed -n '2s/[[:space:]].*//p' "$arquivo_entrada")"
@@ -277,6 +288,7 @@ for arquivo_entrada in "${arquivos_entrada[@]}"; do
     for quantidade_threads in "${quantidades_threads[@]}"; do
         if ((quantidade_threads <= linhas)); then
             ((execucoes_por_rodada += 1))
+            ((total_resumos_esperados += 1))
         fi
     done
 
@@ -289,31 +301,31 @@ printf 'Entradas: %d | Repetições: %d | Threads: %s\n' \
     "$repeticoes" \
     "$threads_lista"
 
-for arquivo_entrada in "${arquivos_entrada[@]}"; do
-    entrada_relativa="${arquivo_entrada#"$diretorio_entradas/"}"
-    categoria="$(basename "$(dirname "$arquivo_entrada")")"
-    geracoes="$(sed -n '1p' "$arquivo_entrada")"
-    read -r linhas colunas < <(sed -n '2p' "$arquivo_entrada")
-    quantidade_vivas="$(sed -n '3p' "$arquivo_entrada")"
-    tamanho_arquivo="$(stat -c '%s' "$arquivo_entrada")"
-    memoria_matrizes=$((linhas * colunas * 2))
+for ((rodada = 1; rodada <= repeticoes; rodada++)); do
+    for arquivo_entrada in "${arquivos_entrada[@]}"; do
+        entrada_relativa="${arquivo_entrada#"$diretorio_entradas/"}"
+        categoria="$(basename "$(dirname "$arquivo_entrada")")"
+        geracoes="$(sed -n '1p' "$arquivo_entrada")"
+        read -r linhas colunas < <(sed -n '2p' "$arquivo_entrada")
+        quantidade_vivas="$(sed -n '3p' "$arquivo_entrada")"
+        tamanho_arquivo="$(stat -c '%s' "$arquivo_entrada")"
+        memoria_matrizes=$((linhas * colunas * 2))
 
-    validar_cabecalho \
-        "$entrada_relativa" \
-        "$geracoes" \
-        "$linhas" \
-        "$colunas" \
-        "$quantidade_vivas"
+        validar_cabecalho \
+            "$entrada_relativa" \
+            "$geracoes" \
+            "$linhas" \
+            "$colunas" \
+            "$quantidade_vivas"
 
-    configuracoes=(sequencial:1)
+        configuracoes=(sequencial:1)
 
-    for quantidade_threads in "${quantidades_threads[@]}"; do
-        if ((quantidade_threads <= linhas)); then
-            configuracoes+=("paralelo:$quantidade_threads")
-        fi
-    done
+        for quantidade_threads in "${quantidades_threads[@]}"; do
+            if ((quantidade_threads <= linhas)); then
+                configuracoes+=("paralelo:$quantidade_threads")
+            fi
+        done
 
-    for ((rodada = 1; rodada <= repeticoes; rodada++)); do
         for ((posicao = 0; posicao < ${#configuracoes[@]}; posicao++)); do
             indice_configuracao="$posicao"
 
@@ -323,6 +335,8 @@ for arquivo_entrada in "${arquivos_entrada[@]}"; do
 
             IFS=: read -r versao quantidade_threads \
                 <<< "${configuracoes[$indice_configuracao]}"
+
+            ((numero_execucao += 1))
 
             registrar_execucao \
                 "$entrada_relativa" \
@@ -340,6 +354,41 @@ for arquivo_entrada in "${arquivos_entrada[@]}"; do
         done
     done
 done
+
+linhas_registradas="$(awk 'END { print NR - 1 }' "$arquivo_execucoes")"
+
+if ((linhas_registradas != total_execucoes)); then
+    printf 'Foram registradas %d de %d execuções planejadas.\n' \
+        "$linhas_registradas" \
+        "$total_execucoes" \
+        >&2
+    exit 1
+fi
+
+if ! awk -F, -v repeticoes="$repeticoes" '
+    NR == 1 { next }
+
+    {
+        chave = $1 SUBSEP $30 SUBSEP $31
+        quantidade[chave]++
+    }
+
+    END {
+        for (chave in quantidade) {
+            if (quantidade[chave] != repeticoes) {
+                split(chave, campos, SUBSEP)
+                printf "Quantidade de repetições inválida para %s, versão %s, com %s thread(s): %d de %d.\n", \
+                    campos[1], campos[2], campos[3], quantidade[chave], repeticoes \
+                    > "/dev/stderr"
+                erro = 1
+            }
+        }
+
+        exit erro
+    }
+' "$arquivo_execucoes"; then
+    exit 1
+fi
 
 {
     printf '%s\n' \
@@ -433,6 +482,16 @@ done
         }
     ' "$arquivo_execucoes" | sort -t, -k1,1 -k6,6n
 } > "$arquivo_resumo"
+
+linhas_resumo="$(awk 'END { print NR - 1 }' "$arquivo_resumo")"
+
+if ((linhas_resumo != total_resumos_esperados)); then
+    printf 'O resumo contém %d de %d configurações paralelas esperadas.\n' \
+        "$linhas_resumo" \
+        "$total_resumos_esperados" \
+        >&2
+    exit 1
+fi
 
 {
     printf '\nfim_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"

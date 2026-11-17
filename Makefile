@@ -3,7 +3,7 @@ PYTHON := python3
 
 CFLAGS := -std=c11 -O2 -Wall -Wextra -Wpedantic
 PTHREAD_FLAGS := -pthread
-PROFILE_FLAGS := -pg
+PROFILE_FLAGS := -pg -fno-inline -fno-ipa-sra
 
 BIN_DIR := bin
 SEQUENTIAL_BIN := $(BIN_DIR)/sequencial
@@ -53,7 +53,7 @@ experiments-complete: $(SEQUENTIAL_BIN) $(PARALLEL_BIN)
 
 profile-sequential-gprof: CFLAGS += $(PROFILE_FLAGS)
 profile-sequential-gprof: clean $(SEQUENTIAL_BIN)
-	$(SEQUENTIAL_BIN) $(INPUT)
+	OMITIR_SAIDA=1 $(SEQUENTIAL_BIN) $(INPUT)
 	gprof $(SEQUENTIAL_BIN) gmon.out
 
 profile-sequential-detailed: $(SEQUENTIAL_BIN)

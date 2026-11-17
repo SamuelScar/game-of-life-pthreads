@@ -306,11 +306,17 @@ O speedup é calculado dividindo a média sequencial pela média paralela. A
 eficiência é calculada dividindo o speedup pela quantidade de threads. A versão
 sequencial é executada na mesma série para evitar comparar medições produzidas
 em máquinas ou momentos diferentes. Cinco repetições são usadas localmente por
-padrão, assim como na série sequencial. A ordem das configurações é invertida
-nas rodadas pares para reduzir o viés de executar sempre uma versão primeiro.
-A execução sequencial e a paralela com uma thread permanecem separadas, pois a
-segunda também inclui os custos de criação, sincronização e encerramento do
-worker.
+padrão, assim como na série sequencial. Cada rodada percorre todas as entradas
+antes de iniciar a próxima, e a ordem das configurações é invertida nas rodadas
+pares. Isso reduz tanto o viés de executar repetidamente a mesma entrada quanto
+o de executar sempre uma versão primeiro. A execução sequencial e a paralela
+com uma thread permanecem separadas, pois a segunda também inclui os custos de
+criação, sincronização e encerramento do worker.
+
+Antes de calcular o resumo, o script confere se todas as execuções planejadas
+foram registradas, se cada configuração possui a quantidade esperada de
+repetições e se o resumo contém todas as configurações paralelas. Uma série
+incompleta é interrompida em vez de produzir speedup e eficiência parciais.
 
 O workflow `Experimentos completos` é iniciado manualmente no GitHub Actions.
 Por padrão, ele executa cada configuração dez vezes com 1, 2, 4 e 8 threads. A
@@ -331,6 +337,11 @@ Gere o perfil da versão sequencial com `gprof`:
 docker compose run --rm dev make profile-sequential-gprof \
   INPUT=entradas/exemplo.txt
 ```
+
+Esse alvo recompila somente a versão sequencial com `-pg`, desativa o inlining e
+a substituição interprocedural de argumentos para preservar as funções no
+perfil, e omite a impressão do estado final durante a coleta. Os builds normais
+e os experimentos permanecem otimizados com `-O2`.
 
 ## Limpeza
 

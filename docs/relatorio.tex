@@ -110,10 +110,12 @@ em ordem de linhas e colunas para escrever suas coordenadas na saída padrão.
 \section{Perfil de desempenho sequencial}
 
 O perfil da versão sequencial é obtido com \texttt{gprof}, Cachegrind e Massif.
-O primeiro identifica as funções que concentram o tempo de CPU, o Cachegrind
-analisa referências e faltas nos caches simulados, e o Massif acompanha o uso de
-memória. A coleta detalhada também registra a topologia da CPU, a hierarquia de
-caches e o código assembly produzido pelo compilador.
+Para o \texttt{gprof}, a versão sequencial é instrumentada com \texttt{-pg}; o
+inlining e a substituição interprocedural de argumentos são desativados para
+permitir distinguir as funções no perfil. O Cachegrind analisa referências e
+faltas nos caches simulados, e o Massif acompanha o uso de memória. A coleta
+detalhada também registra a topologia da CPU, a hierarquia de caches e o código
+assembly produzido pelo compilador.
 
 O script \texttt{scripts/coletar\_perfil\_sequencial.sh} concentra essa coleta e
 grava os artefatos em \texttt{resultados/perfil\_sequencial/}.
@@ -170,10 +172,12 @@ repetições por padrão. No GitHub Actions são usadas dez repetições e
 $P \in \{1,2,4,8\}$, com parâmetros configuráveis antes da execução.
 
 A versão sequencial é medida na mesma série e na mesma máquina das configurações
-paralelas. A ordem das configurações é invertida nas rodadas pares para reduzir
-o viés de executar sempre uma versão primeiro. A leitura do arquivo e a escrita
-do estado final ficam fora do tempo interno da simulação, enquanto criação,
-sincronização e encerramento dos workers permanecem no tempo paralelo.
+paralelas. Cada rodada percorre todas as entradas antes do início da próxima, e
+a ordem das configurações é invertida nas rodadas pares. Isso reduz tanto o viés
+de executar repetidamente a mesma entrada quanto o de executar sempre uma versão
+primeiro. A leitura do arquivo e a escrita do estado final ficam fora do tempo
+interno da simulação, enquanto criação, sincronização e encerramento dos workers
+permanecem no tempo paralelo.
 
 Além das médias, são registrados desvio-padrão amostral, mínimo, máximo, uso de
 CPU, memória, falhas de página, trocas de contexto e operações de entrada e
