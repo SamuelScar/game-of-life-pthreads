@@ -37,6 +37,7 @@ docker compose run --rm dev
 - `scripts/suporte_experimentos.sh`: detecção e condicionamento da cache;
 - `scripts/executar_experimentos_sequenciais.sh`: série apenas sequencial;
 - `scripts/executar_experimentos_completos.sh`: comparação sequencial e paralela;
+- `scripts/processar_resultados_experimentos.sh`: valida e consolida medições já coletadas;
 - `scripts/coletar_perfil_sequencial.sh`: profiling detalhado da referência;
 - `scripts/gerar_relatorio_experimentos.sh`: relatório Markdown das medições;
 - `.github/workflows/experimentos-completos.yml`: automação da série completa.
@@ -297,7 +298,8 @@ aleatórias com sementes fixas. Também verifica coordenadas repetidas ou fora d
 limites, arquivos incompletos e quantidades inválidas de threads. A validação
 ocorre fora da série temporizada e interrompe o fluxo ao encontrar divergência.
 A lista de threads deve incluir `1`, usada como baseline da implementação
-Pthreads.
+Pthreads. O mesmo alvo também valida a sintaxe dos scripts Bash e dos blocos
+AWK usados na consolidação, antes de iniciar a etapa longa do workflow.
 
 ## Experimentos completos
 
@@ -372,6 +374,23 @@ Antes de calcular o resumo, o script confere se todas as execuções planejadas
 foram registradas, se cada configuração possui a quantidade esperada de
 repetições e se o resumo contém todas as configurações paralelas. Uma série
 incompleta é interrompida em vez de produzir speedup e eficiência parciais.
+O CSV bruto é preservado antes da consolidação, e o resumo só substitui a versão
+anterior depois de passar por todas as validações.
+
+O pós-processamento pode ser repetido sem executar novamente as simulações. Por
+exemplo, para uma série com 10 repetições, 2.920 medições e 233 configurações
+paralelas:
+
+```bash
+docker compose run --rm \
+  -e REPETICOES=10 \
+  dev bash scripts/processar_resultados_experimentos.sh \
+    resultados/experimentos_completos 2920 233
+```
+
+Os dois últimos argumentos são opcionais em uma análise exploratória. Quando
+informados pelo executor da série, eles impedem que um conjunto incompleto seja
+aceito como resultado válido.
 
 O workflow `Experimentos completos` é iniciado manualmente no GitHub Actions.
 Por padrão, ele executa cada configuração dez vezes com 1, 2, 4 e 8 threads. A

@@ -16,16 +16,19 @@ THREADS ?= 4
 GPROF_OUTPUT ?= resultados/perfil_sequencial/gprof.txt
 SEQUENTIAL_EXPERIMENT_SCRIPT := scripts/executar_experimentos_sequenciais.sh
 COMPLETE_EXPERIMENT_SCRIPT := scripts/executar_experimentos_completos.sh
+EXPERIMENT_RESULT_PROCESSOR := scripts/processar_resultados_experimentos.sh
 EQUIVALENCE_VALIDATION_SCRIPT := scripts/validar_equivalencia.sh
 INVALID_INPUT_VALIDATION_SCRIPT := scripts/validar_entradas_invalidas.sh
 SVG_SCRIPT := scripts/gerar_svg.py
 SVG_OUTPUT ?= resultados/visualizacoes/estado-final.svg
 RANDOM_INPUT_SCRIPT := scripts/gerar_entradas_aleatorias.py
 SEQUENTIAL_PROFILE_SCRIPT := scripts/coletar_perfil_sequencial.sh
+SHELL_SCRIPTS := $(wildcard scripts/*.sh)
 
 .PHONY: all run-sequential run-parallel visualize-sequential \
 	generate-random-inputs experiments-sequential experiments-complete \
-	validate validate-equivalence validate-invalid-inputs \
+	process-experiment-results validate validate-experiment-scripts \
+	validate-equivalence validate-invalid-inputs \
 	profile-sequential-gprof \
 	profile-sequential-detailed clean
 
@@ -64,7 +67,14 @@ experiments-sequential: $(SEQUENTIAL_BIN) $(CACHE_CONDITIONER_BIN)
 experiments-complete: $(SEQUENTIAL_BIN) $(PARALLEL_BIN) $(CACHE_CONDITIONER_BIN)
 	bash $(COMPLETE_EXPERIMENT_SCRIPT)
 
-validate: validate-equivalence validate-invalid-inputs
+process-experiment-results:
+	bash $(EXPERIMENT_RESULT_PROCESSOR)
+
+validate: validate-experiment-scripts validate-equivalence validate-invalid-inputs
+
+validate-experiment-scripts:
+	bash -n $(SHELL_SCRIPTS)
+	bash $(EXPERIMENT_RESULT_PROCESSOR) --verificar-sintaxe
 
 validate-equivalence: $(SEQUENTIAL_BIN) $(PARALLEL_BIN)
 	bash $(EQUIVALENCE_VALIDATION_SCRIPT)
