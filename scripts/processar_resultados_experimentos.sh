@@ -16,6 +16,13 @@ validar_inteiro_positivo()
     fi
 }
 
+contar_registros_csv()
+{
+    local arquivo="$1"
+
+    awk 'END { print (NR > 0 ? NR - 1 : 0) }' "$arquivo"
+}
+
 validar_execucoes()
 {
     local arquivo_execucoes="$1"
@@ -303,6 +310,7 @@ verificar_sintaxe_awk()
     diretorio_temporario="$(mktemp -d)"
     resumo_temporario="$diretorio_temporario/resumo.csv"
 
+    contar_registros_csv /dev/null > /dev/null
     validar_execucoes /dev/null 1
     validar_repeticoes /dev/null 1
     gerar_resumo /dev/null "$resumo_temporario"
@@ -348,7 +356,7 @@ if [[ -n "$total_resumos_esperado" ]]; then
     validar_inteiro_positivo TOTAL_RESUMOS_ESPERADO "$total_resumos_esperado"
 fi
 
-linhas_registradas="$(awk 'END { print NR > 0 ? NR - 1 : 0 }' "$arquivo_execucoes")"
+linhas_registradas="$(contar_registros_csv "$arquivo_execucoes")"
 
 if [[ -n "$total_execucoes_esperado" ]] \
     && ((linhas_registradas != total_execucoes_esperado)); then
@@ -368,7 +376,7 @@ trap 'rm -f "$arquivo_resumo_temporario"' EXIT
 gerar_resumo "$arquivo_execucoes" "$arquivo_resumo_temporario"
 validar_resumo "$arquivo_resumo_temporario"
 
-linhas_resumo="$(awk 'END { print NR > 0 ? NR - 1 : 0 }' "$arquivo_resumo_temporario")"
+linhas_resumo="$(contar_registros_csv "$arquivo_resumo_temporario")"
 
 if [[ -n "$total_resumos_esperado" ]] \
     && ((linhas_resumo != total_resumos_esperado)); then

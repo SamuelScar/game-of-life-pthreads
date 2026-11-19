@@ -38,6 +38,8 @@ docker compose run --rm dev
 - `scripts/executar_experimentos_sequenciais.sh`: série apenas sequencial;
 - `scripts/executar_experimentos_completos.sh`: comparação sequencial e paralela;
 - `scripts/processar_resultados_experimentos.sh`: valida e consolida medições já coletadas;
+- `scripts/validar_processamento_resultados.sh`: exercita a consolidação de
+  ponta a ponta sobre uma fixture pequena;
 - `scripts/coletar_perfil_sequencial.sh`: profiling detalhado da referência;
 - `scripts/gerar_relatorio_experimentos.sh`: relatório Markdown das medições;
 - `.github/workflows/experimentos-completos.yml`: automação da série completa.
@@ -299,7 +301,10 @@ limites, arquivos incompletos e quantidades inválidas de threads. A validação
 ocorre fora da série temporizada e interrompe o fluxo ao encontrar divergência.
 A lista de threads deve incluir `1`, usada como baseline da implementação
 Pthreads. O mesmo alvo também valida a sintaxe dos scripts Bash e dos blocos
-AWK usados na consolidação, antes de iniciar a etapa longa do workflow.
+AWK e exercita a consolidação completa sobre uma fixture pequena. Essa
+verificação passa pela contagem das medições, validação do CSV, geração do
+resumo e conferência das configurações antes de iniciar a etapa longa do
+workflow.
 
 ## Experimentos completos
 

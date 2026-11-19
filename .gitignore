@@ -1,5 +1,6 @@
 bin/
 resultados/
+/experimentos-completos-*.zip
 gmon.out
 *.o
 
