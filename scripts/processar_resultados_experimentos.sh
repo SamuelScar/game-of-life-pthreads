@@ -387,7 +387,8 @@ if [[ -n "$total_resumos_esperado" ]] \
     exit 1
 fi
 
-mv "$arquivo_resumo_temporario" "$arquivo_resumo"
+chmod 0644 "$arquivo_resumo_temporario"
+mv -- "$arquivo_resumo_temporario" "$arquivo_resumo"
 arquivo_resumo_temporario=""
 
 printf '%s\n' \

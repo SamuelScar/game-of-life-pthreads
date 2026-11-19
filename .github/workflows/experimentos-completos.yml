@@ -86,6 +86,35 @@ jobs:
             -e RUNNER_NAME \
             dev bash scripts/gerar_relatorio_experimentos.sh
 
+      - name: Preparar resultados para publicação
+        id: preparar_resultados
+        if: always()
+        run: |
+          if [[ -d resultados ]]; then
+            docker compose run --rm -T dev \
+              chmod -R a+rX /workspace/resultados
+          fi
+
+      - name: Validar leitura dos resultados
+        id: validar_resultados
+        if: always()
+        run: |
+          if [[ ! -d resultados ]]; then
+            echo "Diretório de resultados não foi gerado." >&2
+            exit 1
+          fi
+
+          caminho_inacessivel="$(
+            find resultados \
+              \( -type d ! -executable -o -type f ! -readable \) \
+              -print -quit
+          )"
+
+          if [[ -n "$caminho_inacessivel" ]]; then
+            echo "Caminho inacessível para o runner: $caminho_inacessivel" >&2
+            exit 1
+          fi
+
       - name: Publicar resumo da execução
         if: always()
         run: |
@@ -98,7 +127,7 @@ jobs:
           fi
 
       - name: Armazenar resultados
-        if: always()
+        if: always() && steps.preparar_resultados.outcome == 'success' && steps.validar_resultados.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: experimentos-completos-${{ github.run_id }}
@@ -109,6 +138,6 @@ jobs:
             resultados/experimentos_completos/
             resultados/perfil_sequencial/
             resultados/relatorio_experimentos.md
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
           compression-level: 9
