@@ -190,16 +190,29 @@ gerar_resumo()
                     desvio_paralelo = variancia_paralela > 0 ? sqrt(variancia_paralela) : 0
                     mediana_sequencial = calcular_mediana(entrada, quantidade_sequencial[entrada], tempos_sequenciais)
                     mediana_paralela = calcular_mediana(chave, quantidade_paralela[chave], tempos_paralelos)
-                    speedup = media_paralela > 0 ? media_sequencial / media_paralela : 0
-                    eficiencia = threads > 0 ? speedup / threads : 0
-                    speedup_pthreads_1 = media_paralela > 0 ? media_pthreads_1 / media_paralela : 0
-                    eficiencia_pthreads_1 = threads > 0 ? speedup_pthreads_1 / threads : 0
+                    media_sequencial_resumo = sprintf("%.12f", media_sequencial) + 0
+                    media_paralela_resumo = sprintf("%.12f", media_paralela) + 0
+                    media_pthreads_1_resumo = sprintf("%.12f", media_pthreads_1) + 0
+                    speedup = media_paralela_resumo > 0 \
+                        ? media_sequencial_resumo / media_paralela_resumo \
+                        : 0
+                    speedup_resumo = sprintf("%.9f", speedup) + 0
+                    eficiencia = threads > 0 ? speedup_resumo / threads : 0
+                    eficiencia_resumo = sprintf("%.9f", eficiencia) + 0
+                    speedup_pthreads_1 = media_paralela_resumo > 0 \
+                        ? media_pthreads_1_resumo / media_paralela_resumo \
+                        : 0
+                    speedup_pthreads_1_resumo = sprintf("%.9f", speedup_pthreads_1) + 0
+                    eficiencia_pthreads_1 = threads > 0 \
+                        ? speedup_pthreads_1_resumo / threads \
+                        : 0
+                    eficiencia_pthreads_1_resumo = sprintf("%.9f", eficiencia_pthreads_1) + 0
                     cpu_media = soma_cpu_paralela[chave] / quantidade_paralela[chave]
                     rss_medio_mib = soma_rss_paralela[chave] / quantidade_paralela[chave] / 1024
-                    custo_paralelo = threads * media_paralela
-                    sobrecusto = custo_paralelo - media_sequencial
+                    custo_paralelo = threads * media_paralela_resumo
+                    sobrecusto = custo_paralelo - media_sequencial_resumo
 
-                    printf "%s,%s,%d,%d,%d,%d,%d,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.6f,%.6f,%.2f,%.3f,%.3f,%.3f,%.9f,%.9f,%s,%d,%d,%.9f,%.9f,%.9f,%.6f,%.6f,%.2f\n", \
+                    printf "%s,%s,%d,%d,%d,%d,%d,%.12f,%.12f,%.12f,%.12f,%.12f,%.12f,%.12f,%.12f,%.9f,%.9f,%.6f,%.3f,%.3f,%.3f,%.12f,%.12f,%s,%d,%d,%.12f,%.12f,%.12f,%.9f,%.9f,%.6f\n", \
                         entrada,
                         categoria[entrada],
                         linhas[entrada],
@@ -207,17 +220,17 @@ gerar_resumo()
                         geracoes[entrada],
                         threads,
                         quantidade_paralela[chave],
-                        media_sequencial,
+                        media_sequencial_resumo,
                         desvio_sequencial,
                         minimo_sequencial[entrada],
                         maximo_sequencial[entrada],
-                        media_paralela,
+                        media_paralela_resumo,
                         desvio_paralelo,
                         minimo_paralelo[chave],
                         maximo_paralelo[chave],
-                        speedup,
-                        eficiencia,
-                        eficiencia * 100,
+                        speedup_resumo,
+                        eficiencia_resumo,
+                        eficiencia_resumo * 100,
                         cpu_media,
                         cpu_media / 100,
                         rss_medio_mib,
@@ -228,10 +241,10 @@ gerar_resumo()
                         linhas_max_participante[chave],
                         mediana_sequencial,
                         mediana_paralela,
-                        media_pthreads_1,
-                        speedup_pthreads_1,
-                        eficiencia_pthreads_1,
-                        eficiencia_pthreads_1 * 100
+                        media_pthreads_1_resumo,
+                        speedup_pthreads_1_resumo,
+                        eficiencia_pthreads_1_resumo,
+                        eficiencia_pthreads_1_resumo * 100
                 }
             }
         ' "$arquivo_execucoes" | sort -t, -k1,1 -k6,6n
@@ -245,6 +258,12 @@ validar_resumo()
     awk -F, '
         function absoluto(valor) {
             return valor < 0 ? -valor : valor
+        }
+
+        BEGIN {
+            tolerancia_razao = 0.00000001
+            tolerancia_tempo = 0.00000000001
+            tolerancia_percentual = 0.000001
         }
 
         NR == 1 {
@@ -264,20 +283,50 @@ validar_resumo()
                 erro = 1
             }
 
-            if ($12 <= 0 || absoluto($16 - $8 / $12) > 0.00001) {
+            if ($12 <= 0 || absoluto($16 - $8 / $12) > tolerancia_razao) {
                 printf "Speedup inconsistente na linha %d do resumo.\n", NR \
                     > "/dev/stderr"
                 erro = 1
             }
 
-            if ($6 <= 0 || absoluto($17 - $16 / $6) > 0.00001) {
+            if ($6 <= 0 || absoluto($17 - $16 / $6) > tolerancia_razao) {
                 printf "Eficiência inconsistente na linha %d do resumo.\n", NR \
                     > "/dev/stderr"
                 erro = 1
             }
 
-            if ($12 <= 0 || absoluto($30 - $29 / $12) > 0.00001) {
+            if (absoluto($18 - $17 * 100) > tolerancia_percentual) {
+                printf "Percentual de eficiência inconsistente na linha %d.\n", NR \
+                    > "/dev/stderr"
+                erro = 1
+            }
+
+            if (absoluto($22 - $6 * $12) > tolerancia_tempo) {
+                printf "Custo paralelo inconsistente na linha %d.\n", NR \
+                    > "/dev/stderr"
+                erro = 1
+            }
+
+            if (absoluto($23 - ($22 - $8)) > tolerancia_tempo) {
+                printf "Sobrecusto inconsistente na linha %d.\n", NR \
+                    > "/dev/stderr"
+                erro = 1
+            }
+
+            if ($12 <= 0 || absoluto($30 - $29 / $12) > tolerancia_razao) {
                 printf "Speedup Pthreads 1 inconsistente na linha %d.\n", NR \
+                    > "/dev/stderr"
+                erro = 1
+            }
+
+            if ($6 <= 0 || absoluto($31 - $30 / $6) > tolerancia_razao) {
+                printf "Eficiência Pthreads 1 inconsistente na linha %d.\n", NR \
+                    > "/dev/stderr"
+                erro = 1
+            }
+
+            if (absoluto($32 - $31 * 100) > tolerancia_percentual) {
+                printf "Percentual de eficiência Pthreads 1 inconsistente na linha %d.\n", NR \
                     > "/dev/stderr"
                 erro = 1
             }

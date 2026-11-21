@@ -6,6 +6,7 @@ diretorio_script="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 raiz_projeto="$(cd -- "$diretorio_script/.." && pwd)"
 processador_resultados="$diretorio_script/processar_resultados_experimentos.sh"
 fixture_execucoes="$raiz_projeto/testes/fixtures/execucoes_processamento.csv"
+fixture_precisao="$raiz_projeto/testes/fixtures/execucoes_processamento_precisao.csv"
 diretorio_temporario=""
 
 limpar_temporarios()
@@ -24,12 +25,14 @@ if [[ ! -f "$processador_resultados" ]]; then
     exit 1
 fi
 
-if [[ ! -f "$fixture_execucoes" ]]; then
-    printf 'Fixture de execuções não encontrada em %s.\n' \
-        "$fixture_execucoes" \
-        >&2
-    exit 1
-fi
+for fixture in "$fixture_execucoes" "$fixture_precisao"; do
+    if [[ ! -f "$fixture" ]]; then
+        printf 'Fixture de execuções não encontrada em %s.\n' \
+            "$fixture" \
+            >&2
+        exit 1
+    fi
+done
 
 diretorio_temporario="$(mktemp -d)"
 cp "$fixture_execucoes" "$diretorio_temporario/execucoes.csv"
@@ -80,4 +83,54 @@ awk -F, '
     }
 ' "$arquivo_resumo"
 
-printf 'Pós-processamento dos experimentos validado de ponta a ponta.\n'
+cp "$fixture_precisao" "$diretorio_temporario/execucoes.csv"
+
+REPETICOES=2 bash "$processador_resultados" \
+    "$diretorio_temporario" \
+    8 \
+    3 \
+    > /dev/null
+
+awk -F, '
+    function absoluto(valor) {
+        return valor < 0 ? -valor : valor
+    }
+
+    NR == 1 { next }
+
+    {
+        quantidade++
+
+        if (absoluto($8 - 0.0000029785) > 0.0000000000001) {
+            print "Média sequencial perdeu precisão na fixture reduzida." \
+                > "/dev/stderr"
+            erro = 1
+        }
+
+        if (absoluto($29 - 0.0000050525) > 0.0000000000001) {
+            print "Baseline Pthreads 1 perdeu precisão na fixture reduzida." \
+                > "/dev/stderr"
+            erro = 1
+        }
+
+        if (absoluto($16 - $8 / $12) > 0.00000001) {
+            print "Speedup não corresponde às médias serializadas." \
+                > "/dev/stderr"
+            erro = 1
+        }
+    }
+
+    END {
+        if (quantidade != 3) {
+            printf "Resumo de precisão com %d de 3 configurações.\n", quantidade \
+                > "/dev/stderr"
+            erro = 1
+        }
+
+        exit erro
+    }
+' "$arquivo_resumo"
+
+printf '%s\n' \
+    'Pós-processamento dos experimentos validado de ponta a ponta.' \
+    'Precisão das médias e métricas derivadas validada.'
