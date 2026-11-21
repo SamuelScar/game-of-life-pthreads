@@ -20,6 +20,7 @@ EXPERIMENT_RESULT_PROCESSOR := scripts/processar_resultados_experimentos.sh
 EXPERIMENT_RESULT_VALIDATION_SCRIPT := scripts/validar_processamento_resultados.sh
 EQUIVALENCE_VALIDATION_SCRIPT := scripts/validar_equivalencia.sh
 INVALID_INPUT_VALIDATION_SCRIPT := scripts/validar_entradas_invalidas.sh
+MAIN_THREAD_VALIDATION_SCRIPT := scripts/validar_thread_principal.sh
 SVG_SCRIPT := scripts/gerar_svg.py
 SVG_OUTPUT ?= resultados/visualizacoes/estado-final.svg
 RANDOM_INPUT_SCRIPT := scripts/gerar_entradas_aleatorias.py
@@ -30,6 +31,7 @@ SHELL_SCRIPTS := $(wildcard scripts/*.sh)
 	generate-random-inputs experiments-sequential experiments-complete \
 	process-experiment-results validate validate-experiment-scripts \
 	validate-experiment-processing validate-equivalence validate-invalid-inputs \
+	validate-main-thread validate-main-thread-memory \
 	profile-sequential-gprof \
 	profile-sequential-detailed clean
 
@@ -86,6 +88,12 @@ validate-equivalence: $(SEQUENTIAL_BIN) $(PARALLEL_BIN)
 
 validate-invalid-inputs: $(SEQUENTIAL_BIN) $(PARALLEL_BIN)
 	bash $(INVALID_INPUT_VALIDATION_SCRIPT)
+
+validate-main-thread: $(SEQUENTIAL_BIN) $(PARALLEL_BIN)
+	bash $(MAIN_THREAD_VALIDATION_SCRIPT)
+
+validate-main-thread-memory: $(SEQUENTIAL_BIN) $(PARALLEL_BIN)
+	VALIDAR_MEMORIA=1 bash $(MAIN_THREAD_VALIDATION_SCRIPT)
 
 profile-sequential-gprof: $(SEQUENTIAL_GPROF_BIN)
 	mkdir -p $(dir $(GPROF_OUTPUT))

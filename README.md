@@ -2,7 +2,9 @@
 
 Implementações sequencial e paralela do Jogo da Vida de Conway em C. A versão
 sequencial calcula as gerações em uma única thread. A versão paralela utiliza
-Pthreads, decomposição horizontal do domínio e sincronização por barreiras.
+Pthreads, decomposição horizontal do domínio e sincronização por barreiras. A
+quantidade informada inclui a thread principal, que também processa uma faixa de
+linhas.
 
 ## Requisitos
 
@@ -33,6 +35,8 @@ docker compose run --rm dev
 - `src/simulacao.h`: representação e kernel comuns às duas versões;
 - `src/condicionar_cache.c`: condicionamento controlado da cache entre medições;
 - `scripts/validar_equivalencia.sh`: comparação funcional antes dos benchmarks;
+- `scripts/validar_thread_principal.sh`: verificação local reduzida da
+  participação da thread principal;
 - `scripts/validar_entradas_invalidas.sh`: verifica rejeição de entradas e parâmetros inválidos;
 - `scripts/suporte_experimentos.sh`: detecção e condicionamento da cache;
 - `scripts/executar_experimentos_sequenciais.sh`: série apenas sequencial;
@@ -96,6 +100,10 @@ docker compose run --rm dev make run-parallel \
   INPUT=entradas/exemplo.txt \
   THREADS=4
 ```
+
+`THREADS` representa o total de participantes do cálculo. A thread principal
+processa uma faixa e são criadas `THREADS - 1` threads auxiliares. Com
+`THREADS=1`, a principal executa toda a simulação sem criar uma auxiliar.
 
 ## Visualização do estado final
 
@@ -285,6 +293,26 @@ compilador.
 
 ## Validação funcional
 
+Para uma verificação local curta da participação da thread principal, execute:
+
+```bash
+docker compose run --rm -T dev make validate-main-thread
+```
+
+O teste reduzido compara a versão Pthreads com a sequencial em duas matrizes,
+com quantidades par e ímpar de gerações e com 1, 2 e 4 participantes. Cada
+execução possui limite de tempo para detectar um possível bloqueio na barreira.
+Os arquivos temporários são removidos ao final.
+
+Para repetir o mesmo teste com verificação de vazamentos pelo Valgrind:
+
+```bash
+docker compose run --rm -T dev make validate-main-thread-memory
+```
+
+Essa variante executa o Memcheck com 1, 2 e 4 participantes em uma das entradas
+reduzidas e falha ao encontrar erro de memória ou bloco não liberado.
+
 Antes de medir desempenho, compare as saídas sequencial e Pthreads e confirme
 que entradas e parâmetros inválidos são rejeitados:
 
@@ -329,10 +357,11 @@ Valores maiores que a quantidade de linhas de uma entrada são ignorados para
 essa entrada. A lista deve incluir uma thread para permitir o cálculo da
 escalabilidade interna da versão Pthreads. A série gera:
 
-- `resultados/experimentos_completos/execucoes.csv`, com as mesmas métricas de tempo, CPU,
-  memória, paginação, contexto e I/O da série sequencial, além da quantidade de
-  threads, oversubscription, distribuição das linhas entre os workers, ordem da
-  medição, configuração precedente e condicionamento da cache;
+- `resultados/experimentos_completos/execucoes.csv`, com as mesmas métricas de
+  tempo, CPU, memória, paginação, contexto e I/O da série sequencial, além da
+  quantidade de threads, oversubscription, distribuição das linhas entre os
+  participantes, ordem da medição, configuração precedente e condicionamento
+  da cache;
 - `resultados/experimentos_completos/resumo_desempenho.csv`, com médias,
   medianas, desvios-padrão, mínimos, máximos, speedup, eficiência, utilização de
   CPU, custo e sobrecusto;
@@ -344,15 +373,17 @@ eficiência é calculada dividindo o speedup pela quantidade de threads. A vers�
 sequencial é executada na mesma série para evitar comparar medições produzidas
 em máquinas ou momentos diferentes. O resumo também calcula o speedup de cada
 configuração em relação a Pthreads com uma thread, separando o ganho do kernel
-do ganho obtido ao aumentar os workers. Cinco repetições são usadas localmente
-por padrão, assim como na série sequencial. Cada rodada percorre todas as
-entradas antes de iniciar a próxima. O ponto inicial e o sentido do percurso
-variam, e as configurações são rotacionadas de acordo com a rodada e a entrada.
+do ganho obtido ao aumentar os participantes. Cinco repetições são usadas
+localmente por padrão, assim como na série sequencial. Cada rodada percorre
+todas as entradas antes de iniciar a próxima. O ponto inicial e o sentido do
+percurso variam, e as configurações são rotacionadas de acordo com a rodada e a
+entrada.
 Assim, sequencial e Pthreads ocupam posições diferentes e não mantêm sempre o
 mesmo predecessor. Um ciclo completo coloca cada configuração uma vez em cada
 posição; o ciclo seguinte usa o sentido inverso. A execução sequencial e a
-paralela com uma thread permanecem separadas, pois a segunda também inclui os
-custos de criação, sincronização e encerramento do worker.
+paralela com uma thread permanecem separadas, pois a segunda mantém a
+decomposição e a sincronização da implementação Pthreads, embora execute na
+thread principal sem criar uma auxiliar.
 
 O condicionamento da cache é habilitado por padrão. O tamanho do buffer é quatro
 vezes a maior cache de dados detectada, limitado automaticamente entre 64 MiB e

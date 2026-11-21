@@ -136,31 +136,35 @@ geração atual, diferentes regiões podem ser calculadas simultaneamente.
 
 A matriz é armazenada por linhas; por isso, a decomposição em faixas horizontais
 contíguas favorece a localidade de memória. As escritas são independentes, pois
-cada worker atualiza apenas sua faixa na matriz da próxima geração. As leituras
-podem alcançar faixas vizinhas, mas utilizam somente a matriz da geração atual.
+cada participante atualiza apenas sua faixa na matriz da próxima geração. As
+leituras podem alcançar faixas vizinhas, mas utilizam somente a matriz da geração
+atual.
 
 \section{Estratégia de paralelização com Pthreads}
 
 A matriz é dividida estaticamente em faixas horizontais. O quociente da divisão
 da quantidade de linhas por $P$ define o tamanho base, e as linhas restantes são
-distribuídas entre os primeiros workers. Assim, a diferença entre a maior e a
-menor faixa é de no máximo uma linha.
+distribuídas entre os primeiros participantes. Assim, a diferença entre a maior
+e a menor faixa é de no máximo uma linha.
 
-O programa cria $P$ workers persistentes, sem contar a thread principal. Duas
-matrizes booleanas contíguas são compartilhadas: uma é lida como geração atual e
-a outra recebe a próxima geração. Cada worker escreve somente em sua própria
-faixa. Uma barreira reutilizável ao final de cada geração garante que nenhum
-worker troque os papéis das matrizes enquanto outro ainda calcula a geração
-anterior.
+O valor $P$ representa o total de threads participantes do cálculo. O programa
+cria $P-1$ workers persistentes, enquanto a própria thread principal assume a
+faixa restante. Duas matrizes booleanas contíguas são compartilhadas: uma é
+lida como geração atual e a outra recebe a próxima geração. Cada participante
+escreve somente em sua própria faixa. Uma barreira reutilizável ao final de cada
+geração garante que nenhum participante troque os papéis das matrizes enquanto
+outro ainda calcula a geração anterior.
 
-A thread principal realiza a entrada e a saída, libera simultaneamente os
-workers após a criação, aguarda seus términos com \texttt{pthread\_join} e libera
-os recursos. A quantidade de workers deve satisfazer $1 \leq P \leq L$, em que
-$L$ é a quantidade de linhas da matriz.
+A thread principal realiza a entrada, cria e libera simultaneamente os workers,
+processa sua própria faixa, aguarda os $P-1$ workers com
+\texttt{pthread\_join}, realiza a saída e libera os recursos. A quantidade total
+de participantes deve satisfazer $1 \leq P \leq L$, em que $L$ é a quantidade
+de linhas da matriz. Para $P=1$, a simulação ocorre inteiramente na thread
+principal, sem criar uma thread auxiliar.
 
 As duas versões chamam o mesmo kernel para evoluir uma faixa de linhas. A
-diferença experimental fica concentrada na criação dos workers, na decomposição
-do domínio e na sincronização por barreira.
+diferença experimental fica concentrada na criação das threads auxiliares, na
+decomposição do domínio e na sincronização por barreira.
 
 \section{Avaliação de desempenho}
 
@@ -178,7 +182,7 @@ em que $P$ representa a quantidade de threads. A eficiência será calculada por
 \end{equation}
 
 Para separar o ganho do kernel Pthreads do ganho causado pelo aumento de
-workers, também será calculada a escalabilidade relativa a uma thread:
+participantes, também será calculada a escalabilidade relativa a uma thread:
 
 \begin{equation}
     S_{1}(P) = \frac{T_{\mathrm{Pthreads}}(1)}{T_{\mathrm{Pthreads}}(P)},
@@ -205,8 +209,8 @@ vezes maior que a maior cache de dados detectada, limitado entre 64 MiB e
 512 MiB. Esse condicionamento ocorre fora da região temporizada e reduz a
 dependência da cache compartilhada deixada pela execução anterior. A leitura do
 arquivo e a escrita do estado final também ficam fora do tempo interno da
-simulação, enquanto criação, sincronização e encerramento dos workers permanecem
-no tempo paralelo.
+simulação, enquanto criação, sincronização e encerramento das threads auxiliares
+permanecem no tempo paralelo.
 
 O CSV registra a ordem global, a posição da configuração e a execução
 precedente. A independência absoluta não é garantida, pois frequência,
@@ -219,7 +223,7 @@ limpeza alteraria globalmente a máquina.
 Além das médias, são registrados desvio-padrão amostral, mínimo, máximo, uso de
 CPU, memória, falhas de página, trocas de contexto e operações de entrada e
 saída. A mediana complementa a média por ser menos sensível a medições atípicas.
-Configurações com mais workers que processadores lógicos disponíveis são
+Configurações com mais participantes que processadores lógicos disponíveis são
 marcadas como oversubscription e devem ser interpretadas separadamente.
 
 \subsection{Automação e artefatos}

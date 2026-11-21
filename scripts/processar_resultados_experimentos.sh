@@ -107,7 +107,7 @@ gerar_resumo()
 
     {
         printf '%s\n' \
-            'entrada,categoria,linhas,colunas,geracoes,threads,repeticoes,media_sequencial_segundos,desvio_sequencial_segundos,minimo_sequencial_segundos,maximo_sequencial_segundos,media_paralela_segundos,desvio_paralelo_segundos,minimo_paralelo_segundos,maximo_paralelo_segundos,speedup,eficiencia,eficiencia_percentual,cpu_paralela_media_percentual,nucleos_cpu_medios,rss_maximo_paralelo_medio_mib,custo_paralelo_segundos,sobrecusto_segundos,oversubscription,linhas_min_worker,linhas_max_worker,mediana_sequencial_segundos,mediana_paralela_segundos,media_pthreads_1_segundos,speedup_vs_pthreads_1,eficiencia_vs_pthreads_1,eficiencia_vs_pthreads_1_percentual'
+            'entrada,categoria,linhas,colunas,geracoes,threads,repeticoes,media_sequencial_segundos,desvio_sequencial_segundos,minimo_sequencial_segundos,maximo_sequencial_segundos,media_paralela_segundos,desvio_paralelo_segundos,minimo_paralelo_segundos,maximo_paralelo_segundos,speedup,eficiencia,eficiencia_percentual,cpu_paralela_media_percentual,nucleos_cpu_medios,rss_maximo_paralelo_medio_mib,custo_paralelo_segundos,sobrecusto_segundos,oversubscription,linhas_min_participante,linhas_max_participante,mediana_sequencial_segundos,mediana_paralela_segundos,media_pthreads_1_segundos,speedup_vs_pthreads_1,eficiencia_vs_pthreads_1,eficiencia_vs_pthreads_1_percentual'
 
         awk -F, '
             function calcular_mediana(chave, quantidade, valores, copia, i, j, temporario) {
@@ -161,8 +161,8 @@ gerar_resumo()
                 quantidade_paralela[chave]++
                 tempos_paralelos[chave SUBSEP quantidade_paralela[chave]] = $10
                 oversubscription[chave] = $32
-                linhas_min_worker[chave] = $33
-                linhas_max_worker[chave] = $34
+                linhas_min_participante[chave] = $33
+                linhas_max_participante[chave] = $34
 
                 if (!(chave in minimo_paralelo) || $10 < minimo_paralelo[chave])
                     minimo_paralelo[chave] = $10
@@ -224,8 +224,8 @@ gerar_resumo()
                         custo_paralelo,
                         sobrecusto,
                         oversubscription[chave],
-                        linhas_min_worker[chave],
-                        linhas_max_worker[chave],
+                        linhas_min_participante[chave],
+                        linhas_max_participante[chave],
                         mediana_sequencial,
                         mediana_paralela,
                         media_pthreads_1,

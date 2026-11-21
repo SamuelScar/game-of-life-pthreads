@@ -101,8 +101,8 @@ registrar_execucao()
     local escritas_sistema_arquivos
     local status_saida
     local oversubscription=nao
-    local linhas_min_worker=0
-    local linhas_max_worker=0
+    local linhas_min_participante=0
+    local linhas_max_participante=0
     local -a comando
 
     arquivo_erro="$diretorio_temporario/erro-${numero_execucao}.txt"
@@ -112,8 +112,8 @@ registrar_execucao()
         comando=("$binario_sequencial" "$arquivo_entrada")
     else
         comando=("$binario_paralelo" "$arquivo_entrada" "$quantidade_threads")
-        linhas_min_worker=$((linhas / quantidade_threads))
-        linhas_max_worker=$(((linhas + quantidade_threads - 1) / quantidade_threads))
+        linhas_min_participante=$((linhas / quantidade_threads))
+        linhas_max_participante=$(((linhas + quantidade_threads - 1) / quantidade_threads))
 
         if ((quantidade_threads > processadores_logicos)); then
             oversubscription=sim
@@ -221,8 +221,8 @@ registrar_execucao()
         "$versao" \
         "$quantidade_threads" \
         "$oversubscription" \
-        "$linhas_min_worker" \
-        "$linhas_max_worker" \
+        "$linhas_min_participante" \
+        "$linhas_max_participante" \
         "$numero_execucao" \
         "$posicao_configuracao" \
         "$execucao_precedente" \
@@ -308,6 +308,8 @@ mkdir -p "$diretorio_resultados"
     printf 'inicio_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     printf 'inicio_epoch=%s\n' "$inicio_epoch"
     printf 'threads_lista=%s\n' "$threads_lista"
+    printf 'thread_principal_participa=sim\n'
+    printf 'semantica_quantidade_threads=total_participantes\n'
     printf 'repeticoes=%s\n' "$repeticoes"
     printf 'cache_condicionada=%s\n' "$cache_condicionada"
     printf 'cache_condicionamento_bytes=%d\n' "$bytes_condicionamento_cache"
@@ -333,7 +335,7 @@ mkdir -p "$diretorio_resultados"
 } > "$arquivo_ambiente"
 
 printf '%s\n' \
-    'entrada,categoria,linhas,colunas,geracoes,rodada,celulas_vivas_iniciais,arquivo_entrada_bytes,memoria_matrizes_bytes,tempo_simulacao_segundos,tempo_usuario_segundos,tempo_sistema_segundos,tempo_parede_segundos,cpu_percentual,rss_maximo_kb,rss_medio_kb,memoria_total_media_kb,dados_nao_compartilhados_kb,pilha_media_kb,texto_compartilhado_kb,pagina_bytes,page_faults_maiores,page_faults_menores,swaps,trocas_contexto_voluntarias,trocas_contexto_involuntarias,leituras_sistema_arquivos,escritas_sistema_arquivos,status_saida,versao,threads,oversubscription,linhas_min_worker,linhas_max_worker,ordem_execucao,posicao_configuracao,execucao_anterior,cache_condicionada,cache_condicionamento_bytes' \
+    'entrada,categoria,linhas,colunas,geracoes,rodada,celulas_vivas_iniciais,arquivo_entrada_bytes,memoria_matrizes_bytes,tempo_simulacao_segundos,tempo_usuario_segundos,tempo_sistema_segundos,tempo_parede_segundos,cpu_percentual,rss_maximo_kb,rss_medio_kb,memoria_total_media_kb,dados_nao_compartilhados_kb,pilha_media_kb,texto_compartilhado_kb,pagina_bytes,page_faults_maiores,page_faults_menores,swaps,trocas_contexto_voluntarias,trocas_contexto_involuntarias,leituras_sistema_arquivos,escritas_sistema_arquivos,status_saida,versao,threads,oversubscription,linhas_min_participante,linhas_max_participante,ordem_execucao,posicao_configuracao,execucao_anterior,cache_condicionada,cache_condicionamento_bytes' \
     > "$arquivo_execucoes"
 
 total_execucoes=0

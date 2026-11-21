@@ -61,6 +61,8 @@ status_execucao="${STATUS_EXECUCAO:-concluida}"
 status_perfil="${STATUS_PERFIL:-nao_informado}"
 cache_condicionada=indisponivel
 cache_condicionamento_bytes=indisponivel
+thread_principal_participa=indisponivel
+semantica_quantidade_threads=indisponivel
 quantidade_execucoes=0
 quantidade_execucoes_paralelas=0
 quantidade_entradas=0
@@ -107,6 +109,14 @@ if ((coluna_versao == 30)) && [[ -f "$arquivo_ambiente_paralelo" ]]; then
         awk -F= '$1 == "cache_condicionamento_bytes" { print $2; exit }' \
             "$arquivo_ambiente_paralelo"
     )"
+    thread_principal_participa="$(
+        awk -F= '$1 == "thread_principal_participa" { print $2; exit }' \
+            "$arquivo_ambiente_paralelo"
+    )"
+    semantica_quantidade_threads="$(
+        awk -F= '$1 == "semantica_quantidade_threads" { print $2; exit }' \
+            "$arquivo_ambiente_paralelo"
+    )"
 elif [[ -f "$arquivo_inicio" ]]; then
     cache_condicionada="$(
         awk -F= '$1 == "cache_condicionada" { print $2; exit }' \
@@ -120,6 +130,8 @@ fi
 
 cache_condicionada="${cache_condicionada:-indisponivel}"
 cache_condicionamento_bytes="${cache_condicionamento_bytes:-indisponivel}"
+thread_principal_participa="${thread_principal_participa:-indisponivel}"
+semantica_quantidade_threads="${semantica_quantidade_threads:-indisponivel}"
 
 {
     printf '# Resumo da execução dos experimentos\n\n'
@@ -142,6 +154,12 @@ cache_condicionamento_bytes="${cache_condicionamento_bytes:-indisponivel}"
     printf '| Processadores lógicos | %s |\n' "$cpus_logicas"
     printf '| Memória total | %s |\n' "$memoria_total"
     printf '| Compilador | %s |\n' "$versao_gcc"
+    if ((coluna_versao == 30)); then
+        printf '| Thread principal participa do cálculo | %s |\n' \
+            "$thread_principal_participa"
+        printf '| Significado da quantidade de threads | %s |\n' \
+            "$semantica_quantidade_threads"
+    fi
     printf '| Cache condicionada antes de cada medição | %s |\n' \
         "$cache_condicionada"
     printf '| Buffer de condicionamento da cache (bytes) | %s |\n' \
@@ -220,7 +238,7 @@ cache_condicionamento_bytes="${cache_condicionamento_bytes:-indisponivel}"
     printf '\n## Resultados paralelos\n\n'
 
     if [[ -s "$arquivo_resumo_paralelo" ]]; then
-        printf '| Entrada | Linhas | Colunas | Threads | Rodadas | Sequencial médio (s) | Mediana sequencial (s) | Paralelo médio (s) | Mediana paralela (s) | Speedup sequencial | Speedup Pthreads 1 | Eficiência sequencial | Eficiência Pthreads 1 | CPU média | Núcleos médios | RSS máximo médio (MiB) | Oversubscription | Linhas por worker |\n'
+        printf '| Entrada | Linhas | Colunas | Threads | Rodadas | Sequencial médio (s) | Mediana sequencial (s) | Paralelo médio (s) | Mediana paralela (s) | Speedup sequencial | Speedup Pthreads 1 | Eficiência sequencial | Eficiência Pthreads 1 | CPU média | Núcleos médios | RSS máximo médio (MiB) | Oversubscription | Linhas por thread |\n'
         printf '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|\n'
         awk -F, 'NR > 1 {
             printf "| `%s` | %d | %d | %d | %d | %.9f | %.9f | %.9f | %.9f | %.6f | %.6f | %.2f%% | %.2f%% | %.3f%% | %.3f | %.3f | %s | %d-%d |\n",
@@ -269,6 +287,9 @@ cache_condicionamento_bytes="${cache_condicionamento_bytes:-indisponivel}"
     printf -- '- O speedup é a média sequencial dividida pela média paralela da mesma entrada.\n'
     printf -- '- A eficiência é o speedup dividido pela quantidade de threads.\n'
     printf -- '- O speedup Pthreads 1 compara cada configuração com a versão Pthreads de uma thread.\n'
+    if [[ "$thread_principal_participa" == "sim" ]]; then
+        printf -- '- A quantidade de threads inclui a principal, que também processa uma faixa de linhas.\n'
+    fi
     printf -- '- Configurações com mais threads que processadores lógicos disponíveis são marcadas como oversubscription.\n'
 } > "$arquivo_relatorio"
 

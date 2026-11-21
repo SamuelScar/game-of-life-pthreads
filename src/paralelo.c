@@ -128,14 +128,9 @@ static bool aguardar_inicio(SimulacaoParalela *simulacao)
     return executar;
 }
 
-static void *executar_worker(void *argumento)
+static void executar_geracoes(Worker *worker)
 {
-    Worker *worker = argumento;
     SimulacaoParalela *simulacao = worker->simulacao;
-
-    if (!aguardar_inicio(simulacao))
-        return NULL;
-
     Mundo *mundo = simulacao->mundo;
     bool *geracao_atual = mundo->celulas;
     bool *proxima_geracao = simulacao->proxima_geracao;
@@ -155,6 +150,14 @@ static void *executar_worker(void *argumento)
         geracao_atual = proxima_geracao;
         proxima_geracao = geracao_anterior;
     }
+}
+
+static void *executar_worker(void *argumento)
+{
+    Worker *worker = argumento;
+
+    if (aguardar_inicio(worker->simulacao))
+        executar_geracoes(worker);
 
     return NULL;
 }
@@ -229,16 +232,24 @@ static int simular(Mundo *mundo, int quantidade_threads)
     bool *proxima_geracao = malloc(
         quantidade_celulas * sizeof(*proxima_geracao)
     );
-    pthread_t *threads = calloc(
-        (size_t)quantidade_threads,
-        sizeof(*threads)
-    );
+    const int quantidade_threads_auxiliares = quantidade_threads - 1;
+    pthread_t *threads = NULL;
+
+    if (quantidade_threads_auxiliares > 0) {
+        threads = calloc(
+            (size_t)quantidade_threads_auxiliares,
+            sizeof(*threads)
+        );
+    }
+
     Worker *workers = calloc(
         (size_t)quantidade_threads,
         sizeof(*workers)
     );
 
-    if (proxima_geracao == NULL || threads == NULL || workers == NULL) {
+    if (proxima_geracao == NULL
+        || workers == NULL
+        || (quantidade_threads_auxiliares > 0 && threads == NULL)) {
         free(proxima_geracao);
         free(threads);
         free(workers);
@@ -257,8 +268,6 @@ static int simular(Mundo *mundo, int quantidade_threads)
         return EXIT_FAILURE;
     }
 
-    int threads_criadas = 0;
-
     for (int indice = 0; indice < quantidade_threads; indice++) {
         workers[indice].simulacao = &simulacao;
         definir_faixa(
@@ -267,7 +276,13 @@ static int simular(Mundo *mundo, int quantidade_threads)
             quantidade_threads,
             mundo->linhas
         );
+    }
 
+    int threads_auxiliares_criadas = 0;
+
+    for (int indice = 0;
+         indice < quantidade_threads_auxiliares;
+         indice++) {
         if (pthread_create(
                 &threads[indice],
                 NULL,
@@ -277,15 +292,23 @@ static int simular(Mundo *mundo, int quantidade_threads)
             break;
         }
 
-        threads_criadas++;
+        threads_auxiliares_criadas++;
     }
 
-    const bool criacao_completa = threads_criadas == quantidade_threads;
+    const bool criacao_completa =
+        threads_auxiliares_criadas == quantidade_threads_auxiliares;
     liberar_workers(&simulacao, !criacao_completa);
+
+    const int indice_thread_principal = quantidade_threads - 1;
+
+    if (criacao_completa)
+        executar_geracoes(&workers[indice_thread_principal]);
 
     bool finalizacao_completa = true;
 
-    for (int indice = 0; indice < threads_criadas; indice++) {
+    for (int indice = 0;
+         indice < threads_auxiliares_criadas;
+         indice++) {
         if (pthread_join(threads[indice], NULL) != 0)
             finalizacao_completa = false;
     }
