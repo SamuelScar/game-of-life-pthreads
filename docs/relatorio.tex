@@ -58,9 +58,41 @@ Jogo da Vida de Conway. A versão paralela utiliza Pthreads e o modelo de
 memória compartilhada para distribuir a atualização da matriz entre diferentes
 threads.
 
-O desenvolvimento é acompanhado pelo perfil da versão sequencial, pela
-identificação das oportunidades de paralelização e pela avaliação do desempenho
-com diferentes tamanhos de matriz e quantidades de threads.
+O desenvolvimento compreende o perfil da versão sequencial, a identificação
+das oportunidades de paralelização, a validação funcional entre as duas versões
+e uma avaliação de desempenho com diferentes tamanhos de matriz, quantidades de
+gerações e números de participantes. A avaliação foi planejada para separar o
+custo introduzido pela infraestrutura Pthreads do ganho obtido com o aumento do
+paralelismo.
+
+Nesta etapa, o relatório descreve a implementação e o protocolo experimental.
+Os resultados quantitativos e sua discussão serão incorporados somente após a
+conclusão das campanhas de experimentos.
+
+\section{Objetivos}
+
+O objetivo geral é desenvolver e avaliar uma versão paralela do Jogo da Vida
+com Pthreads, preservando o comportamento da implementação sequencial e
+utilizando os recursos de processamento disponíveis de forma controlada.
+
+Os objetivos específicos são:
+
+\begin{itemize}
+    \item identificar a região computacionalmente relevante da versão
+    sequencial;
+    \item distribuir o domínio sem sobreposição de escritas e sincronizar as
+    gerações corretamente;
+    \item fazer a thread principal participar do cálculo, evitando que permaneça
+    ociosa enquanto aguarda as threads auxiliares;
+    \item verificar a equivalência das saídas sequencial e paralela; e
+    \item medir speedup, eficiência, custo e sobrecusto em ambientes com
+    diferentes quantidades de processadores disponíveis.
+\end{itemize}
+
+A análise posterior buscará responder em quais cargas a versão Pthreads supera
+a referência sequencial, como o desempenho evolui até e além da quantidade de
+processadores lógicos disponíveis e quanto do tempo paralelo decorre da
+infraestrutura de criação e sincronização das threads.
 
 \section{Jogo da Vida de Conway}
 
@@ -147,20 +179,27 @@ da quantidade de linhas por $P$ define o tamanho base, e as linhas restantes sã
 distribuídas entre os primeiros participantes. Assim, a diferença entre a maior
 e a menor faixa é de no máximo uma linha.
 
-O valor $P$ representa o total de threads participantes do cálculo. O programa
-cria $P-1$ workers persistentes, enquanto a própria thread principal assume a
-faixa restante. Duas matrizes booleanas contíguas são compartilhadas: uma é
+O valor $P$ representa o total de threads participantes do cálculo, incluindo a
+thread principal. O programa cria $P-1$ workers persistentes, enquanto a própria
+thread principal assume a faixa restante. Duas matrizes booleanas contíguas são
+compartilhadas: uma é
 lida como geração atual e a outra recebe a próxima geração. Cada participante
 escreve somente em sua própria faixa. Uma barreira reutilizável ao final de cada
 geração garante que nenhum participante troque os papéis das matrizes enquanto
 outro ainda calcula a geração anterior.
 
-A thread principal realiza a entrada, cria e libera simultaneamente os workers,
-processa sua própria faixa, aguarda os $P-1$ workers com
-\texttt{pthread\_join}, realiza a saída e libera os recursos. A quantidade total
-de participantes deve satisfazer $1 \leq P \leq L$, em que $L$ é a quantidade
-de linhas da matriz. Para $P=1$, a simulação ocorre inteiramente na thread
-principal, sem criar uma thread auxiliar.
+A thread principal cria as threads auxiliares, libera todas para o cálculo por
+meio de uma variável de condição e processa sua própria faixa. Ao final, aguarda
+os $P-1$ workers com \texttt{pthread\_join}. O controle de início impede que uma
+criação parcial de threads conduza alguns participantes a uma barreira que
+nunca seria completada. Nesse caso, as threads já criadas são liberadas em modo
+de cancelamento e os recursos são recolhidos.
+
+A quantidade total de participantes deve satisfazer $1 \leq P \leq L$, em que
+$L$ é a quantidade de linhas da matriz. Para $P=1$, a simulação ocorre
+inteiramente na thread principal, sem criar uma thread auxiliar. Portanto, essa
+configuração mede a infraestrutura da versão Pthreads sem concorrência entre
+threads.
 
 As duas versões chamam o mesmo kernel para evoluir uma faixa de linhas. A
 diferença experimental fica concentrada na criação das threads auxiliares, na
@@ -168,14 +207,18 @@ decomposição do domínio e na sincronização por barreira.
 
 \section{Avaliação de desempenho}
 
-A avaliação comparará os tempos médios das versões sequencial e paralela. O
-\textit{speedup} será calculado por
+\subsection{Métricas}
+
+A avaliação comparará os tempos médios internos das versões sequencial e
+paralela para a mesma entrada e no mesmo ambiente. O \textit{speedup} em relação
+à implementação sequencial será calculado por
 
 \begin{equation}
     S(P) = \frac{T_{\mathrm{sequencial}}}{T_{\mathrm{paralelo}}(P)},
 \end{equation}
 
-em que $P$ representa a quantidade de threads. A eficiência será calculada por
+em que $P$ representa o total de participantes. A eficiência correspondente
+será calculada por
 
 \begin{equation}
     E(P) = \frac{S(P)}{P}.
@@ -190,11 +233,40 @@ participantes, também será calculada a escalabilidade relativa a uma thread:
     E_{1}(P) = \frac{S_{1}(P)}{P}.
 \end{equation}
 
+O custo e o sobrecusto paralelo serão obtidos, respectivamente, por
+
+\begin{equation}
+    C(P) = P \cdot T_{\mathrm{paralelo}}(P),
+    \qquad
+    O(P) = C(P) - T_{\mathrm{sequencial}}.
+\end{equation}
+
+Essas duas referências não são intercambiáveis. A primeira compara duas
+implementações distintas; a segunda mostra somente a evolução da implementação
+Pthreads quando o número de participantes aumenta.
+
+\subsection{Conjunto de entradas e configurações}
+
 Os experimentos percorrem 18 entradas clássicas, 35 entradas pseudoaleatórias e
 seis cargas de desempenho, com matrizes quadradas e retangulares de diferentes
 dimensões, densidades e quantidades de gerações. A série local utiliza cinco
-repetições por padrão. No GitHub Actions são usadas dez repetições e
-$P \in \{1,2,4,8\}$, com parâmetros configuráveis antes da execução.
+repetições por padrão. No GitHub Actions, os valores padrão são dez repetições
+e $P \in \{1,2,4,8\}$, com parâmetros configuráveis antes da execução.
+
+Configurações em que $P>L$ não são executadas, pois cada participante deve
+receber ao menos uma linha. As duas versões são compiladas em C11 com otimização
+\texttt{-O2} dentro do mesmo ambiente baseado em Ubuntu 24.04. O compilador, o
+sistema operacional, a afinidade permitida, a topologia da CPU e a memória
+disponível são registrados junto aos dados brutos.
+
+O planejamento contempla campanhas em ambientes com dois e quatro
+processadores lógicos disponíveis. Em cada ambiente, a referência sequencial e
+todas as configurações Pthreads devem ser medidas na mesma execução. Tempos
+absolutos de máquinas diferentes não serão combinados no cálculo de speedup; a
+comparação entre ambientes considerará seus próprios baselines e a mudança no
+comportamento das curvas.
+
+\subsection{Protocolo de medição}
 
 A versão sequencial é medida na mesma série e na mesma máquina das configurações
 paralelas. Cada rodada percorre todas as entradas antes do início da próxima, e
@@ -207,10 +279,20 @@ o sentido inverso.
 Antes de cada processo medido, um programa auxiliar percorre um buffer quatro
 vezes maior que a maior cache de dados detectada, limitado entre 64 MiB e
 512 MiB. Esse condicionamento ocorre fora da região temporizada e reduz a
-dependência da cache compartilhada deixada pela execução anterior. A leitura do
-arquivo e a escrita do estado final também ficam fora do tempo interno da
-simulação, enquanto criação, sincronização e encerramento das threads auxiliares
-permanecem no tempo paralelo.
+dependência da cache compartilhada deixada pela execução anterior.
+
+O tempo principal, registrado em \texttt{tempo\_simulacao\_segundos}, utiliza
+\texttt{clock\_gettime} com \texttt{CLOCK\_MONOTONIC}. A leitura da entrada ocorre
+antes dessa região e a escrita do estado final é desativada durante os
+experimentos. A região temporizada inclui a alocação da segunda matriz nas duas
+versões. Na versão paralela, inclui também a inicialização dos mecanismos de
+sincronização, a criação das threads auxiliares, as barreiras, os
+\texttt{joins} e a liberação desses recursos.
+
+As métricas adicionais coletadas por \texttt{/usr/bin/time}---tempo de usuário,
+tempo de sistema, tempo de parede, CPU, memória, paginação, trocas de contexto e
+E/S---abrangem o processo completo. Elas servem como caracterização auxiliar e
+não substituem o tempo interno utilizado no cálculo de speedup e eficiência.
 
 O CSV registra a ordem global, a posição da configuração e a execução
 precedente. A independência absoluta não é garantida, pois frequência,
@@ -220,11 +302,38 @@ balanceada e pelo uso conjunto de média, mediana e dispersão. A cache de arqui
 não é descartada, porque a leitura não participa do tempo da simulação e sua
 limpeza alteraria globalmente a máquina.
 
-Além das médias, são registrados desvio-padrão amostral, mínimo, máximo, uso de
-CPU, memória, falhas de página, trocas de contexto e operações de entrada e
-saída. A mediana complementa a média por ser menos sensível a medições atípicas.
-Configurações com mais participantes que processadores lógicos disponíveis são
-marcadas como oversubscription e devem ser interpretadas separadamente.
+Além das médias, são calculados desvio-padrão amostral, mínimo, máximo e
+mediana. A mediana complementa a média por ser menos sensível a medições
+atípicas. Configurações com mais participantes que processadores lógicos
+disponíveis são marcadas como \textit{oversubscription} e devem ser interpretadas
+separadamente.
+
+\subsection{Validação funcional}
+
+A correção funcional é uma condição anterior à análise de desempenho. A
+automação compara as saídas das versões sequencial e Pthreads em casos de borda,
+divisões regulares e irregulares das linhas e entradas pseudoaleatórias. Também
+verifica a rejeição de entradas e parâmetros inválidos.
+
+Uma validação local reduzida exercita especificamente a participação da thread
+principal com $P \in \{1,2,4\}$, quantidades pares e ímpares de gerações e um
+limite de tempo para detectar possíveis bloqueios. A mesma validação pode ser
+executada sob o Memcheck para procurar acessos inválidos e vazamentos de
+memória, mantendo o limite de tempo como proteção contra bloqueios.
+
+\subsection{Ameaças à validade}
+
+O condicionamento da cache reduz, mas não elimina, a influência da execução
+anterior. Frequência dinâmica, temperatura, escalonamento do sistema operacional
+e atividades externas ainda podem alterar as medições. Em runners
+virtualizados, a máquina física e a contenção com outros hóspedes também podem
+não ser controláveis.
+
+As repetições, a rotação da ordem e o registro do ambiente reduzem esses riscos,
+mas não os anulam. Por isso, diferenças pequenas devem ser analisadas junto com
+a dispersão, e execuções com \textit{oversubscription} não devem ser tratadas
+como evidência direta da escalabilidade disponível em hardware com mais
+processadores.
 
 \subsection{Automação e artefatos}
 
@@ -239,13 +348,21 @@ entradas inválidas, executa os experimentos, coleta Cachegrind, Massif e
 \texttt{gprof}, e publica o relatório e os dados brutos como artefato. Esse fluxo
 mantém a referência sequencial e as medições Pthreads no mesmo runner.
 
-\section{Conclusões}
+\section{Resultados e discussão}
+
+Esta seção será preenchida após a conclusão e a validação das campanhas
+experimentais. A apresentação separará os ambientes de execução, as cargas de
+trabalho e as configurações com e sem \textit{oversubscription}. Serão discutidos
+os tempos, a dispersão, o speedup, a eficiência, o custo e o sobrecusto, sem
+combinar baselines de máquinas diferentes.
+
+\section{Considerações atuais}
 
 As versões sequencial e Pthreads, a automação dos experimentos e a coleta das
 métricas estão implementadas. A comparação utiliza um kernel comum e registra
 tanto o ganho contra a referência sequencial quanto a escalabilidade interna da
-versão Pthreads. As conclusões quantitativas serão preenchidas após a execução
-definitiva em uma máquina com núcleos suficientes para as configurações
-avaliadas.
+versão Pthreads. Nenhuma conclusão quantitativa é antecipada nesta etapa; ela
+dependerá da execução completa, da verificação dos artefatos e da análise
+comparativa dos ambientes planejados.
 
 \end{document}
