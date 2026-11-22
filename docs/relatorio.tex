@@ -431,7 +431,7 @@ A implementação sequencial e paralela preserva os resultados em 47 casos de
 equivalência funcional e rejeita 15 classes de entradas inválidas. A thread
 principal participa da decomposição em todas as configurações testadas.
 
-O gprof identificou 	exttt{contar\_vizinhas} e 	exttt{obter\_indice} como os
+O gprof identificou \texttt{contar\_vizinhas} e \texttt{obter\_indice} como os
 principais consumidores do tempo sequencial. A paralelização foi portanto bem
 adequada ao domínio, pois a atualização das células é independente dentro de
 cada faixa. Os resultados reais mostram ganho em cargas grandes, eficiência
@@ -442,7 +442,7 @@ núcleos físicos.
 A implementação atende à interface definida no enunciado: entrada textual,
 gerações, dimensões, células iniciais e coordenadas, além da saída no mesmo
 formato. Os dados brutos, o resumo, o perfil gprof e o relatório Markdown estão
-presentes no diretório 	exttt{resultados}. Valgrind não estava instalado no
-environment local sem privilégios administrativos, portanto Cachegrind e Massif
+presentes no diretório \texttt{resultados}. Valgrind não estava instalado no
+ambiente local sem privilégios administrativos, portanto Cachegrind e Massif
 não puderam ser executados nesta máquina.
 \end{document}

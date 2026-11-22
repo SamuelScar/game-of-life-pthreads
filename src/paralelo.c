@@ -21,6 +21,7 @@ typedef struct {
     bool inicio_liberado;
     bool cancelar;
     _Atomic bool erro_barreira;
+    _Atomic int codigo_erro_barreira;
 } SimulacaoParalela;
 
 typedef struct {
@@ -150,10 +151,17 @@ static void executar_geracoes(Worker *worker)
 
         if (status_barreira != 0
             && status_barreira != PTHREAD_BARRIER_SERIAL_THREAD) {
+            int codigo_zero = 0;
+            atomic_compare_exchange_strong(
+                &simulacao->codigo_erro_barreira,
+                &codigo_zero,
+                status_barreira
+            );
             atomic_store(&simulacao->erro_barreira, true);
-            break;
         }
 
+        /* Quando uma única geração é concluída, todas as participantes
+           observam atomicamente o erro antes de continuar ou encerrar. */
         if (atomic_load(&simulacao->erro_barreira))
             break;
 
@@ -270,7 +278,8 @@ static int simular(Mundo *mundo, int quantidade_threads)
     SimulacaoParalela simulacao = {
         .mundo = mundo,
         .proxima_geracao = proxima_geracao,
-        .erro_barreira = false
+        .erro_barreira = false,
+        .codigo_erro_barreira = 0
     };
 
     if (!inicializar_sincronizacao(&simulacao, quantidade_threads)) {
@@ -332,6 +341,24 @@ static int simular(Mundo *mundo, int quantidade_threads)
     if (!criacao_completa
         || !finalizacao_completa
         || atomic_load(&simulacao.erro_barreira)) {
+        if (atomic_load(&simulacao.erro_barreira)) {
+            const int codigo = atomic_load(&simulacao.codigo_erro_barreira);
+
+            if (codigo == 0) {
+                fprintf(
+                    stderr,
+                    "Erro na barreira principal Pthreads (codigo desconhecido).\n"
+                );
+            } else {
+                fprintf(
+                    stderr,
+                    "Erro na barreira principal Pthreads (codigo=%d: %s).\n",
+                    codigo,
+                    strerror(codigo)
+                );
+            }
+        }
+
         free(proxima_geracao);
         return EXIT_FAILURE;
     }
