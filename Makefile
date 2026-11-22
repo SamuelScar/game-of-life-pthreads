@@ -1,5 +1,6 @@
 CC := gcc
 PYTHON := python3
+export LC_ALL := C
 
 CFLAGS := -std=c11 -O2 -Wall -Wextra -Wpedantic
 PTHREAD_FLAGS := -pthread

@@ -16,6 +16,7 @@ arquivo_resumo="$diretorio_resultados/resumo_desempenho.csv"
 arquivo_ambiente="$diretorio_resultados/ambiente_execucao.txt"
 diretorio_temporario="$(mktemp -d)"
 processadores_logicos="$(nproc)"
+processadores_fisicos="$(lscpu -p=CORE,SOCKET | awk -F, '!/^#/ { seen[$1 SUBSEP $2]=1 } END { print length(seen) }')"
 inicio_epoch="$(date +%s)"
 numero_execucao=0
 execucao_anterior=nenhuma
@@ -115,7 +116,7 @@ registrar_execucao()
         linhas_min_participante=$((linhas / quantidade_threads))
         linhas_max_participante=$(((linhas + quantidade_threads - 1) / quantidade_threads))
 
-        if ((quantidade_threads > processadores_logicos)); then
+        if ((quantidade_threads > processadores_fisicos)); then
             oversubscription=sim
         fi
     fi
@@ -314,6 +315,7 @@ mkdir -p "$diretorio_resultados"
     printf 'cache_condicionada=%s\n' "$cache_condicionada"
     printf 'cache_condicionamento_bytes=%d\n' "$bytes_condicionamento_cache"
     printf 'ordem_configuracoes=rotacao_balanceada\n'
+    printf 'processadores_fisicos_disponiveis=%s\n' "$processadores_fisicos"
     printf 'processadores_logicos_disponiveis=%s\n' "$processadores_logicos"
     printf 'cpus_permitidas=%s\n' "$(awk '/Cpus_allowed_list/ { print $2 }' /proc/self/status)"
     printf 'carga_media_inicial=%s\n' "$(cut -d' ' -f1-3 /proc/loadavg)"

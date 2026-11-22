@@ -1,11 +1,8 @@
 \documentclass[12pt,a4paper]{article}
 
 \usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
-\usepackage[brazil]{babel}
 \usepackage{amsmath}
 \usepackage{geometry}
-\usepackage{newtxtext,newtxmath}
 \usepackage{setspace}
 \usepackage[
     colorlinks=true,
@@ -90,8 +87,8 @@ Os objetivos específicos são:
 \end{itemize}
 
 A análise posterior buscará responder em quais cargas a versão Pthreads supera
-a referência sequencial, como o desempenho evolui até e além da quantidade de
-processadores lógicos disponíveis e quanto do tempo paralelo decorre da
+a referência sequencial, como o desempenho evolui até e além da quantidade de núcleos físicos disponíveis
+e quanto do tempo paralelo decorre da
 infraestrutura de criação e sincronização das threads.
 
 \section{Jogo da Vida de Conway}
@@ -159,6 +156,21 @@ Massif, topologia e assembly. O alvo
 \texttt{profile-sequential-gprof} usa um executável instrumentado separado e
 grava o perfil em \path{resultados/perfil_sequencial/gprof.txt}. Assim, as
 opções de profiling não alteram os binários usados nos experimentos.
+
+O perfil \texttt{gprof} obtido com \texttt{entradas/classicos/acorn.txt}, uma
+matriz de $100\times100$ e $500$ gerações, registrou $5$ milhões de chamadas ao
+kernel de evolução. \texttt{contar\_vizinhas} concentrou $56{,}52\%$ do tempo próprio,
+enquanto \texttt{obter\_indice} concentrou $39{,}13\%$. Juntas, essas funções
+representaram a maior parte do custo sequencial. Esse resultado é coerente com
+a natureza de acesso irregular da vizinhança: a implementação percorre oito
+células por posição e chama uma função para calcular o índice linear em cada
+vizinho.
+
+A oportunidade direta de otimização é specializar o tratamento das células
+internas e das bordas, evitando verificações repetidas dos limites em
+\texttt{contar\_vizinhas}. A instrução usa uma matriz contígua, o que permite
+manter a localidade das linhas horizontais. Uma implementação otimizada deve
+preservar o kernel comum ou ser validada novamente contra a referência.
 
 \section{Oportunidades de paralelização}
 
@@ -260,11 +272,9 @@ sistema operacional, a afinidade permitida, a topologia da CPU e a memória
 disponível são registrados junto aos dados brutos.
 
 O planejamento contempla campanhas em ambientes com dois e quatro
-processadores lógicos disponíveis. Em cada ambiente, a referência sequencial e
+núcleos físicos disponíveis. Em cada ambiente, a referência sequencial e
 todas as configurações Pthreads devem ser medidas na mesma execução. Tempos
-absolutos de máquinas diferentes não serão combinados no cálculo de speedup; a
-comparação entre ambientes considerará seus próprios baselines e a mudança no
-comportamento das curvas.
+absolutos de máquinas diferentes não serão combinados no cálculo de speedup.
 
 \subsection{Protocolo de medição}
 
@@ -304,8 +314,8 @@ limpeza alteraria globalmente a máquina.
 
 Além das médias, são calculados desvio-padrão amostral, mínimo, máximo e
 mediana. A mediana complementa a média por ser menos sensível a medições
-atípicas. Configurações com mais participantes que processadores lógicos
-disponíveis são marcadas como \textit{oversubscription} e devem ser interpretadas
+atípicas. Configurações com mais participantes que núcleos físicos disponíveis
+são marcadas como \textit{oversubscription} e devem ser interpretadas
 separadamente.
 
 \subsection{Validação funcional}
@@ -350,19 +360,89 @@ mantém a referência sequencial e as medições Pthreads no mesmo runner.
 
 \section{Resultados e discussão}
 
-Esta seção será preenchida após a conclusão e a validação das campanhas
-experimentais. A apresentação separará os ambientes de execução, as cargas de
-trabalho e as configurações com e sem \textit{oversubscription}. Serão discutidos
-os tempos, a dispersão, o speedup, a eficiência, o custo e o sobrecusto, sem
-combinar baselines de máquinas diferentes.
+A campanha local foi concluída em 23 minutos e 38 segundos em Ubuntu 24.04,
+Linux 6.17, com um Intel Core i5-11300H, quatro núcleos físicos e oito
+processadores lógicos. Foram registradas 292 execuções: 59 versões sequenciais e 233 configurações
+Pthreads. A cache foi condicionada com um buffer de 64 MiB antes de cada
+medição. Como houve apenas uma repetição nesta execução local, os resultados
+devem ser interpretados como uma caracterização inicial, não como uma campanha
+estatística com múltiplas repetições.
 
-\section{Considerações atuais}
+A tabela abaixo sintetiza duas cargas de desempenho representativas.
 
-As versões sequencial e Pthreads, a automação dos experimentos e a coleta das
-métricas estão implementadas. A comparação utiliza um kernel comum e registra
-tanto o ganho contra a referência sequencial quanto a escalabilidade interna da
-versão Pthreads. Nenhuma conclusão quantitativa é antecipada nesta etapa; ela
-dependerá da execução completa, da verificação dos artefatos e da análise
-comparativa dos ambientes planejados.
+\begin{table}[htbp]
+\centering
+\begin{tabular}{c|rrrrr}
+\hline
+\textbf{Carga} & $P$ & $T_{seq}$ (s) & $T_P$ (s) & $S$ & $E$\\
+\hline
+$1024^2$, 500 gerações & 1 & 28,278846 & 19,362006 & 1,460533 & 146,05\%\\
+$1024^2$, 500 gerações & 2 & 28,278846 & 13,070541 & 2,163556 & 108,18\%\\
+$1024^2$, 500 gerações & 4 & 28,278846 & 8,318745 & 3,399413 & 84,99\%\\
+$1024^2$, 500 gerações & 8 & 28,278846 & 7,300683 & 3,873452 & 48,42\%\\
+\hline
+$8192^2$, 50 gerações & 1 & 145,074737 & 104,782795 & 1,384528 & 138,45\%\\
+$8192^2$, 50 gerações & 2 & 145,074737 & 63,034194 & 2,301524 & 115,08\%\\
+$8192^2$, 50 gerações & 4 & 145,074737 & 43,686934 & 3,320781 & 83,02\%\\
+$8192^2$, 50 gerações & 8 & 145,074737 & 31,999475 & 4,533660 & 56,67\%\\
+\hline
+\end{tabular}
+\caption{Tempos e ganhos das cargas quadradas de maior duração.}
+\label{tab:desempenho_quadrado}
+\end{table}
 
+Nas duas cargas, a execução com dois participantes foi aproximadamente de
+$2{,}16$ a $2{,}30$ vezes mais rápida que a sequencial. Com quatro, o ganho
+foi próximo de $3{,}32$ a $3{,}40$ vezes. Com oito participantes, o melhor
+resultado observado foi de $4{,}53$ vezes na carga $8192^2$, com eficiência de
+$56{,}67\%$. Esse comportamento é compatível com quatro núcleos físicos e oito
+processadores lógicos. As configurações acima de quatro participantes são
+classificadas como oversubscription neste hardware e incluem simultaneamente o
+custo adicional de criação das threads, barreiras e trocas de contexto.
+
+Os resultados retangulares também confirmaram a importância da carga. Na
+matriz horizontal $2048\times8192$, o tempo caiu de $101{,}600184$ s em uma
+thread para $28{,}496014$ s com oito, obtendo speedup de $3{,}565418$ e
+eficiência sequencial de $44{,}57\%$. Na matriz vertical $8192\times2048$, a
+melhoria foi de $103{,}992752$ s para $21{,}569500$ s, com speedup de
+$4{,}821287$ e eficiência de $60{,}27\%$. Não é correto comparar diretamente
+matrizes retangulares com a carga quadrada, mas a tendência mostra que o ganho
+cresce quando existe trabalho suficiente para amortizar a sincronização.
+
+Em cargas pequenas, como matrizes $5\times5$, $10\times10$ e $20\times20$, o
+Pthreads de uma thread pode ser mais rápido ou mais lento que a implementação
+sequencial devido às diferenças de infraestrutura. Ao aumentar a quantidade
+de participantes, os tempos frequentemente aumentam ou apresentam oscilações,
+porque o custo de barreiras e criação supera o trabalho disponível em cada
+faixa. Isso explica por que a avaliação deve separar cargas pequenas e cargas
+de desempenho.
+
+Não foram realizadas variações controladas de dois ambientes com disponibilidade
+diferente de processadores nesta campanha local. Portanto, não há evidência
+para confirmar ou rejeitar a escalabilidade além de oito participantes. Como
+cada carga foi executada uma vez, os picos numéricos devem ser interpretados
+com cautela. A campanha possui repetição configurada na automação e pode ser
+executada novamente com cinco ou dez repetições para obter desvios, medianas e
+intervalos estatísticos.
+
+\section{Considerações finais}
+
+A implementação sequencial e paralela preserva os resultados em 47 casos de
+equivalência funcional e rejeita 15 classes de entradas inválidas. A thread
+principal participa da decomposição em todas as configurações testadas.
+
+O gprof identificou 	exttt{contar\_vizinhas} e 	exttt{obter\_indice} como os
+principais consumidores do tempo sequencial. A paralelização foi portanto bem
+adequada ao domínio, pois a atualização das células é independente dentro de
+cada faixa. Os resultados reais mostram ganho em cargas grandes, eficiência
+razoável até quatro threads e queda de eficiência em oito threads, coerente com
+o custo da sincronização e com oito threads em oversubscription sobre quatro
+núcleos físicos.
+
+A implementação atende à interface definida no enunciado: entrada textual,
+gerações, dimensões, células iniciais e coordenadas, além da saída no mesmo
+formato. Os dados brutos, o resumo, o perfil gprof e o relatório Markdown estão
+presentes no diretório 	exttt{resultados}. Valgrind não estava instalado no
+environment local sem privilégios administrativos, portanto Cachegrind e Massif
+não puderam ser executados nesta máquina.
 \end{document}

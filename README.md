@@ -365,8 +365,9 @@ escalabilidade interna da versão Pthreads. A série gera:
 - `resultados/experimentos_completos/resumo_desempenho.csv`, com médias,
   medianas, desvios-padrão, mínimos, máximos, speedup, eficiência, utilização de
   CPU, custo e sobrecusto;
-- `resultados/experimentos_completos/ambiente_execucao.txt`, com os parâmetros, processadores lógicos,
-  afinidade, processador, memória, compilador e sistema operacional.
+- `resultados/experimentos_completos/ambiente_execucao.txt`, com os parâmetros,
+  núcleos físicos, processadores lógicos, afinidade, processador, memória,
+  compilador e sistema operacional.
 
 O speedup é calculado dividindo a média sequencial pela média paralela. A
 eficiência é calculada dividindo o speedup pela quantidade de threads. A versão

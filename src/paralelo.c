@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +20,7 @@ typedef struct {
     pthread_cond_t condicao_inicio;
     bool inicio_liberado;
     bool cancelar;
+    _Atomic bool erro_barreira;
 } SimulacaoParalela;
 
 typedef struct {
@@ -144,7 +146,16 @@ static void executar_geracoes(Worker *worker)
             worker->linha_final
         );
 
-        pthread_barrier_wait(&simulacao->barreira);
+        const int status_barreira = pthread_barrier_wait(&simulacao->barreira);
+
+        if (status_barreira != 0
+            && status_barreira != PTHREAD_BARRIER_SERIAL_THREAD) {
+            atomic_store(&simulacao->erro_barreira, true);
+            break;
+        }
+
+        if (atomic_load(&simulacao->erro_barreira))
+            break;
 
         bool *geracao_anterior = geracao_atual;
         geracao_atual = proxima_geracao;
@@ -258,7 +269,8 @@ static int simular(Mundo *mundo, int quantidade_threads)
 
     SimulacaoParalela simulacao = {
         .mundo = mundo,
-        .proxima_geracao = proxima_geracao
+        .proxima_geracao = proxima_geracao,
+        .erro_barreira = false
     };
 
     if (!inicializar_sincronizacao(&simulacao, quantidade_threads)) {
@@ -317,7 +329,9 @@ static int simular(Mundo *mundo, int quantidade_threads)
     free(threads);
     free(workers);
 
-    if (!criacao_completa || !finalizacao_completa) {
+    if (!criacao_completa
+        || !finalizacao_completa
+        || atomic_load(&simulacao.erro_barreira)) {
         free(proxima_geracao);
         return EXIT_FAILURE;
     }

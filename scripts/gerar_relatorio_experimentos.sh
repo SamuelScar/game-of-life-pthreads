@@ -46,6 +46,7 @@ modelo_cpu="$(
 )"
 modelo_cpu="${modelo_cpu:-indisponivel}"
 cpus_logicas="$(nproc)"
+cpus_fisicas="$(lscpu -p=CORE,SOCKET | awk -F, '!/^#/ { seen[$1 SUBSEP $2]=1 } END { print length(seen) }')"
 memoria_total="$(
     awk '/MemTotal/ { printf "%.2f GiB", $2 / 1048576 }' /proc/meminfo
 )"
@@ -151,6 +152,7 @@ semantica_quantidade_threads="${semantica_quantidade_threads:-indisponivel}"
     printf '| Kernel | %s |\n' "$(uname -sr)"
     printf '| Arquitetura | %s |\n' "$(uname -m)"
     printf '| Processador | %s |\n' "$modelo_cpu"
+    printf '| Núcleos físicos | %s |\n' "$cpus_fisicas"
     printf '| Processadores lógicos | %s |\n' "$cpus_logicas"
     printf '| Memória total | %s |\n' "$memoria_total"
     printf '| Compilador | %s |\n' "$versao_gcc"
@@ -290,7 +292,7 @@ semantica_quantidade_threads="${semantica_quantidade_threads:-indisponivel}"
     if [[ "$thread_principal_participa" == "sim" ]]; then
         printf -- '- A quantidade de threads inclui a principal, que também processa uma faixa de linhas.\n'
     fi
-    printf -- '- Configurações com mais threads que processadores lógicos disponíveis são marcadas como oversubscription.\n'
+    printf '%s\n' '- Configurações com mais participantes que núcleos físicos disponíveis são marcadas como oversubscription.'
 } > "$arquivo_relatorio"
 
 printf 'Relatorio gerado em %s\n' "$arquivo_relatorio"
