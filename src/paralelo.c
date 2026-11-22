@@ -151,10 +151,10 @@ static void executar_geracoes(Worker *worker)
 
         if (status_barreira != 0
             && status_barreira != PTHREAD_BARRIER_SERIAL_THREAD) {
-            int codigo_zero = 0;
+            int codigo_esperado = 0;
             atomic_compare_exchange_strong(
                 &simulacao->codigo_erro_barreira,
-                &codigo_zero,
+                &codigo_esperado,
                 status_barreira
             );
             atomic_store(&simulacao->erro_barreira, true);
@@ -350,11 +350,16 @@ static int simular(Mundo *mundo, int quantidade_threads)
                     "Erro na barreira principal Pthreads (codigo desconhecido).\n"
                 );
             } else {
+                char descricao[128];
+
+                if (strerror_r(codigo, descricao, sizeof(descricao)) != 0)
+                    snprintf(descricao, sizeof(descricao), "descricao indisponivel");
+
                 fprintf(
                     stderr,
                     "Erro na barreira principal Pthreads (codigo=%d: %s).\n",
                     codigo,
-                    strerror(codigo)
+                    descricao
                 );
             }
         }
