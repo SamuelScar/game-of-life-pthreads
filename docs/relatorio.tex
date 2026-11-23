@@ -160,10 +160,21 @@ O valor $P$ representa o total de participantes, incluindo a thread principal.
 O programa cria $P-1$ threads auxiliares persistentes e a principal processa a
 faixa restante. Uma barreira reutilizável ao final de cada geração impede a
 troca das matrizes antes que todos terminem. Uma variável de condição controla
-o início conjunto das threads e permite cancelar com segurança uma criação
-parcial. Para $P=1$, nenhum worker auxiliar é criado, mas permanecem a
-alocação das estruturas Pthreads e a barreira com um participante. Portanto,
-essa configuração é o baseline interno da implementação paralela.
+o início conjunto das threads. Se a criação for parcial, as auxiliares já
+criadas são liberadas apenas para encerrar e depois são recolhidas com
+\texttt{pthread\_join}; a simulação não é iniciada. Para $P=1$, nenhum worker
+auxiliar é criado, mas permanecem a alocação das estruturas Pthreads e a
+barreira com um participante. Portanto, essa configuração é o baseline interno
+da implementação paralela.
+
+O retorno de cada \texttt{pthread\_barrier\_wait} também é verificado. Os
+retornos normais, zero e \texttt{PTHREAD\_BARRIER\_SERIAL\_THREAD}, permitem a
+troca das matrizes. Um retorno diferente registra atomicamente o primeiro código
+de erro e ativa uma sinalização compartilhada, consultada pelos participantes
+antes da troca. Depois dos \texttt{joins}, o programa apresenta o código e sua
+descrição e encerra a simulação com falha. Esse tratamento cobre erros
+efetivamente devolvidos pela biblioteca; o limite de tempo da validação continua
+sendo a proteção contra uma chamada que não retorne.
 
 As versões são executáveis diferentes, apesar de compartilharem o código-fonte
 do kernel. Por isso, o ganho da versão Pthreads sobre o executável sequencial e
@@ -213,6 +224,12 @@ $P\in\{1,2,4,8\}$. A Tabela~\ref{tab:ambientes} apresenta somente os recursos
 disponibilizados ao processo em cada runner, e não a capacidade total dos
 modelos de processador informados pelo sistema.
 
+Os scripts obtêm a quantidade de CPUs lógicas disponíveis com \texttt{nproc},
+contam os pares distintos de núcleo e soquete expostos por \texttt{lscpu} e
+registram a lista de CPUs permitidas informada em \texttt{/proc/self/status}.
+Assim, ``núcleo físico'' neste relatório descreve a topologia apresentada ao
+runner virtualizado, não uma inspeção do servidor hospedeiro.
+
 \begin{table}[htbp]
 \centering
 \small
@@ -236,9 +253,10 @@ Buffer de cache & 128 MiB & 512 MiB\\
 \label{tab:ambientes}
 \end{table}
 
-No AMD, $P=2$ utiliza as duas vias SMT do único núcleo; $P=4$ e $P=8$
-excedem as duas CPUs lógicas. No Intel, $P=2$ ocupa os dois núcleos físicos,
-$P=4$ utiliza as quatro vias SMT e apenas $P=8$ excede a capacidade lógica.
+No AMD, $P=2$ utiliza as duas CPUs lógicas do único núcleo com SMT; $P=4$ e
+$P=8$ excedem a capacidade lógica. No Intel, $P=2$ ocupa os dois núcleos
+físicos, $P=4$ utiliza as quatro CPUs lógicas, ativando duas vias SMT
+adicionais, e apenas $P=8$ excede a capacidade lógica.
 
 \subsection{Protocolo de medição e métricas}
 
@@ -293,7 +311,11 @@ $P$ aumenta. A comparação com a mesma implementação paralela em $P=1$ segue 
 procedimento empregado por \textcite{millan2015performance}. Neste trabalho,
 \textit{oversubscription} designa estritamente $P$ maior que o número de CPUs
 lógicas. Configurações acima dos núcleos físicos, mas dentro das CPUs lógicas,
-são classificadas como uso de SMT.
+são classificadas como uso de SMT. Como os artefatos originais foram preservados,
+a classificação apresentada na análise foi recalculada a partir de $P$ e da
+quantidade registrada de CPUs lógicas, sem utilizar diretamente a marcação da
+coluna \texttt{oversubscription} dos CSVs. Essa reclassificação não altera
+tempos nem qualquer outra métrica medida.
 
 \section{Resultados e discussão}
 
@@ -560,8 +582,9 @@ O tamanho da carga determina se o custo das threads pode ser amortizado, mas a
 quantidade de núcleos físicos determina o teto observado. No runner AMD, com um
 núcleo físico, a ocupação de duas CPUs lógicas não produziu ganho consistente.
 No Intel, os dois núcleos físicos alcançaram $S_1(2)=1,978$ com 98,9\% de
-eficiência. Usar as quatro vias SMT elevou o speedup para 2,043, apenas 3,3\%
-acima de $P=2$, e reduziu a eficiência para 51,1\%.
+eficiência. Usar as quatro CPUs lógicas, ativando duas vias SMT adicionais,
+elevou o speedup para 2,043, apenas 3,3\% acima de $P=2$, e reduziu a eficiência
+para 51,1\%.
 
 A execução acima da capacidade lógica não trouxe benefício: $P=8$ reduziu
 ligeiramente o desempenho no Intel e multiplicou o custo; no AMD, $P=4$ e

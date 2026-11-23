@@ -104,6 +104,9 @@ docker compose run --rm dev make run-parallel \
 `THREADS` representa o total de participantes do cálculo. A thread principal
 processa uma faixa e são criadas `THREADS - 1` threads auxiliares. Com
 `THREADS=1`, a principal executa toda a simulação sem criar uma auxiliar.
+O retorno da barreira é verificado a cada geração; um erro devolvido pela
+biblioteca é registrado e faz a simulação terminar com falha depois que as
+threads auxiliares são recolhidas.
 
 ## Visualização do estado final
 
@@ -368,6 +371,11 @@ escalabilidade interna da versão Pthreads. A série gera:
 - `resultados/experimentos_completos/ambiente_execucao.txt`, com os parâmetros,
   núcleos físicos, processadores lógicos, afinidade, processador, memória,
   compilador e sistema operacional.
+
+O campo `oversubscription` recebe `sim` somente quando a quantidade de
+participantes excede os processadores lógicos disponíveis. O uso de mais
+participantes que núcleos físicos, mas dentro da capacidade lógica, é tratado
+como SMT e a topologia exposta pelo runner é registrada separadamente.
 
 O speedup é calculado dividindo a média sequencial pela média paralela. A
 eficiência é calculada dividindo o speedup pela quantidade de threads. A versão
