@@ -1,12 +1,31 @@
 \documentclass[12pt,a4paper]{article}
 
 \usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
 \usepackage{amsmath}
+\usepackage{booktabs}
 \usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{pgfplots}
 \usepackage{setspace}
+\usepackage[
+    backend=biber,
+    style=authoryear,
+    sorting=nyt
+]{biblatex}
+\addbibresource{referencias.bib}
+
+\graphicspath{{figuras/}}
+\pgfplotsset{
+    compat=1.18,
+    /pgf/number format/use comma
+}
+
 \usepackage[
     colorlinks=true,
     linkcolor=black,
+    citecolor=black,
     urlcolor=blue
 ]{hyperref}
 
@@ -32,8 +51,9 @@
     }\\[2cm]
 
     {\normalsize
-        Autor:\\[0.3cm]
-        Samuel de Souza Carvalho Almeida
+        Autores:\\[0.3cm]
+        Samuel de Souza Carvalho Almeida\\
+        Livia Maia Claudio
     }
 
     \vfill
@@ -44,405 +64,519 @@
 \end{titlepage}
 
 \pagenumbering{roman}
+
+\begin{abstract}
+Este trabalho desenvolve e avalia uma versão paralela do Jogo da Vida de
+Conway com Pthreads. A matriz é decomposta em faixas horizontais, a thread
+principal participa do cálculo e uma barreira sincroniza as gerações. A
+avaliação reúne duas campanhas em runners do GitHub Actions, com 59 entradas,
+20 repetições e $P\in\{1,2,4,8\}$ participantes, totalizando 11\,680 execuções
+válidas. A escalabilidade foi medida em relação à própria versão Pthreads com
+$P=1$. No runner com dois núcleos físicos, $P=2$ alcançou speedup médio de 1,978
+e eficiência de 98,9\% nas seis cargas de desempenho; $P=4$ elevou o speedup
+para 2,043, mas reduziu a eficiência para 51,1\%. No runner com um núcleo
+físico não houve ganho consistente. Entradas pequenas foram dominadas pelo
+custo de criação e sincronização das threads, enquanto a execução acima da
+capacidade lógica aumentou o custo sem ampliar o desempenho. Os resultados
+mostram que a configuração adequada depende simultaneamente do tamanho da
+carga e da topologia efetivamente disponibilizada ao processo.
+
+\medskip
+\noindent\textbf{Palavras-chave:} Pthreads; Jogo da Vida; autômatos celulares;
+escalabilidade forte; speedup; oversubscription.
+\end{abstract}
+
 \tableofcontents
-\newpage
+\clearpage
 \pagenumbering{arabic}
 
 \section{Introdução}
 
-Este trabalho apresenta o desenvolvimento de versões sequencial e paralela do
-Jogo da Vida de Conway. A versão paralela utiliza Pthreads e o modelo de
-memória compartilhada para distribuir a atualização da matriz entre diferentes
-threads.
+O Jogo da Vida de Conway é um autômato celular bidimensional no qual o estado
+de cada célula evolui a partir de uma regra local aplicada à sua vizinhança. A
+regularidade da malha e a independência das escritas de uma geração tornam o
+problema adequado ao estudo de paralelismo em memória compartilhada. Ao mesmo
+tempo, o pequeno trabalho realizado por célula faz com que sincronização,
+movimentação de dados e tamanho da entrada influenciem diretamente o ganho
+obtido.
 
-O desenvolvimento compreende o perfil da versão sequencial, a identificação
-das oportunidades de paralelização, a validação funcional entre as duas versões
-e uma avaliação de desempenho com diferentes tamanhos de matriz, quantidades de
-gerações e números de participantes. A avaliação foi planejada para separar o
-custo introduzido pela infraestrutura Pthreads do ganho obtido com o aumento do
-paralelismo.
+Estudos anteriores exploram diferentes aspectos desse problema. A comparação
+de variantes sequenciais, multithread e GPU mostra que não existe uma estratégia
+única superior para todos os modelos e cargas de autômatos celulares
+\parencite{rybacki2009experiments}. Em CPU multicore, dimensão da malha,
+quantidade de gerações e atividade das células alteram a capacidade de amortizar
+o custo da paralelização \parencite{gibson2015efficient}. Avaliações em HPC
+também separam escalabilidade forte e fraca e relacionam perdas de eficiência a
+memória, cache e comunicação \parencite{millan2015performance}. Essas
+referências orientam as métricas empregadas neste trabalho, mas a análise a
+seguir é baseada exclusivamente nas implementações e medições do projeto.
 
-Nesta etapa, o relatório descreve a implementação e o protocolo experimental.
-Os resultados quantitativos e sua discussão serão incorporados somente após a
-conclusão das campanhas de experimentos.
+O objetivo é desenvolver uma versão Pthreads funcionalmente equivalente à
+versão sequencial e determinar quando o aumento do número de participantes
+produz ganho real. A investigação é organizada pelas seguintes perguntas:
 
-\section{Objetivos}
+\begin{enumerate}
+    \item a versão Pthreads preserva o resultado da versão sequencial?
+    \item como o tamanho da carga altera o benefício da paralelização?
+    \item como speedup e eficiência evoluem em relação aos núcleos físicos e às
+    CPUs lógicas disponíveis?
+    \item qual é o efeito de usar mais participantes que a capacidade lógica da
+    máquina?
+\end{enumerate}
 
-O objetivo geral é desenvolver e avaliar uma versão paralela do Jogo da Vida
-com Pthreads, preservando o comportamento da implementação sequencial e
-utilizando os recursos de processamento disponíveis de forma controlada.
+Além de tempo e speedup, são analisados eficiência, utilização média de CPU,
+custo computacional, dispersão e perfil da versão sequencial. Essa combinação
+permite distinguir uma configuração simplesmente mais rápida de outra que usa
+os recursos disponíveis de forma eficiente.
 
-Os objetivos específicos são:
+\section{Metodologia}
 
-\begin{itemize}
-    \item identificar a região computacionalmente relevante da versão
-    sequencial;
-    \item distribuir o domínio sem sobreposição de escritas e sincronizar as
-    gerações corretamente;
-    \item fazer a thread principal participar do cálculo, evitando que permaneça
-    ociosa enquanto aguarda as threads auxiliares;
-    \item verificar a equivalência das saídas sequencial e paralela; e
-    \item medir speedup, eficiência, custo e sobrecusto em ambientes com
-    diferentes quantidades de processadores disponíveis.
-\end{itemize}
+\subsection{Implementações sequencial e Pthreads}
 
-A análise posterior buscará responder em quais cargas a versão Pthreads supera
-a referência sequencial, como o desempenho evolui até e além da quantidade de núcleos físicos disponíveis
-e quanto do tempo paralelo decorre da
-infraestrutura de criação e sincronização das threads.
+Cada célula pode estar viva ou morta e considera as oito posições ao seu redor.
+Uma célula viva sobrevive com duas ou três vizinhas vivas; nos demais casos ela
+morre. Uma célula morta nasce quando possui exatamente três vizinhas vivas. As
+posições fora da matriz são tratadas como mortas.
 
-\section{Jogo da Vida de Conway}
-
-O Jogo da Vida é um autômato celular representado por uma matriz bidimensional.
-Cada célula pode estar viva ou morta, e seu estado na próxima geração depende
-das oito células vizinhas.
-
-As regras de evolução são:
-
-\begin{itemize}
-    \item uma célula viva com menos de duas vizinhas vivas morre;
-    \item uma célula viva com duas ou três vizinhas vivas sobrevive;
-    \item uma célula viva com mais de três vizinhas vivas morre;
-    \item uma célula morta com exatamente três vizinhas vivas torna-se viva.
-\end{itemize}
-
-\section{Entrada e saída}
-
-A aplicação recebe o caminho de um arquivo contendo a quantidade de gerações,
-as dimensões da matriz, a quantidade inicial de células vivas e suas
-coordenadas. O estado final do mundo é escrito na saída padrão no mesmo
-formato definido para a entrada.
-
-As coordenadas são interpretadas como linha e coluna, com índices iniciados em
-zero. Células localizadas fora dos limites da matriz são consideradas mortas.
-Entradas com dimensões inválidas, coordenadas repetidas ou coordenadas fora da
+A aplicação recebe um arquivo com quantidade de gerações, dimensões da matriz,
+quantidade de células vivas e suas coordenadas. As coordenadas são indexadas a
+partir de zero. Dimensões inválidas, coordenadas repetidas ou posições fora da
 matriz são rejeitadas.
 
-\section{Implementação sequencial}
+A versão sequencial armazena a matriz em um vetor booleano contíguo e utiliza
+duas áreas de memória: uma somente para leitura da geração atual e outra para a
+escrita da geração seguinte. Ao final de cada geração, os ponteiros são
+trocados. O kernel em \path{src/simulacao.h} percorre uma faixa de linhas,
+conta as vizinhas e calcula o novo estado de cada célula.
 
-A versão sequencial representa a matriz em um vetor contíguo de valores
-booleanos. O índice de uma célula é calculado a partir de sua linha, de sua
-coluna e da quantidade de colunas da matriz.
+A versão Pthreads divide estaticamente as linhas em faixas horizontais
+contíguas. O quociente de $L/P$ define o tamanho base das faixas e o restante é
+distribuído entre os primeiros participantes, de modo que a diferença entre a
+maior e a menor faixa seja de no máximo uma linha. Cada participante escreve
+exclusivamente em sua faixa da próxima geração, embora possa ler células de
+faixas vizinhas na matriz atual.
 
-Para cada célula, o programa percorre as oito posições vizinhas e contabiliza
-somente aquelas que estão dentro dos limites da matriz. Em seguida, aplica as
-regras do Jogo da Vida para determinar o estado da célula na próxima geração.
+O valor $P$ representa o total de participantes, incluindo a thread principal.
+O programa cria $P-1$ threads auxiliares persistentes e a principal processa a
+faixa restante. Uma barreira reutilizável ao final de cada geração impede a
+troca das matrizes antes que todos terminem. Uma variável de condição controla
+o início conjunto das threads e permite cancelar com segurança uma criação
+parcial. Para $P=1$, nenhum worker auxiliar é criado, mas permanecem a
+alocação das estruturas Pthreads e a barreira com um participante. Portanto,
+essa configuração é o baseline interno da implementação paralela.
 
-A simulação utiliza duas matrizes: uma para leitura da geração atual e outra
-para escrita da próxima geração. Ao final de cada geração, os ponteiros são
-trocados. Dessa forma, nenhuma célula utiliza estados que já tenham sido
-atualizados na mesma geração.
+As versões são executáveis diferentes, apesar de compartilharem o código-fonte
+do kernel. Por isso, o ganho da versão Pthreads sobre o executável sequencial e
+o ganho provocado pelo aumento de $P$ são tratados como medidas distintas.
 
-O kernel que calcula um intervalo de linhas está em
-\path{src/simulacao.h} e é compartilhado com a versão Pthreads. A referência
-sequencial aplica esse kernel a todas as linhas, evitando que diferenças no
-cálculo das células sejam confundidas com ganhos de paralelização.
+\subsection{Validação e perfil da versão sequencial}
 
-Depois da última geração, o programa conta as células vivas e percorre a matriz
-em ordem de linhas e colunas para escrever suas coordenadas na saída padrão.
+A correção funcional é verificada antes da avaliação de desempenho. A automação
+compara as saídas sequencial e Pthreads em casos de borda, divisões regulares e
+irregulares das linhas, quantidades pares e ímpares de gerações e entradas
+pseudoaleatórias. Também verifica a rejeição de arquivos e parâmetros
+inválidos. A validação da thread principal usa limite de tempo para detectar
+possíveis bloqueios e pode ser executada sob o Memcheck.
 
-\section{Perfil de desempenho sequencial}
+O perfil sequencial utiliza três instrumentos complementares. O \texttt{gprof}
+identifica a distribuição do tempo de CPU entre as funções; o Cachegrind simula
+referências e faltas nos níveis de cache, além dos desvios de fluxo; e o Massif
+acompanha o uso de heap e pilha. O executável do \texttt{gprof} é compilado com
+\texttt{-pg} e opções que preservam as funções no perfil. Os binários utilizados
+nas medições de tempo não recebem essa instrumentação.
 
-O perfil da versão sequencial é obtido com \texttt{gprof}, Cachegrind e Massif.
-Para o \texttt{gprof}, a versão sequencial é instrumentada com \texttt{-pg}; o
-inlining e a substituição interprocedural de argumentos são desativados para
-permitir distinguir as funções no perfil. O Cachegrind analisa referências e
-faltas nos caches simulados, e o Massif acompanha o uso de memória. A coleta
-detalhada também registra a topologia da CPU, a hierarquia de caches e o código
-assembly produzido pelo compilador.
+\subsection{Entradas e ambientes experimentais}
 
-O script \texttt{scripts/coletar\_perfil\_sequencial.sh} coleta Cachegrind,
-Massif, topologia e assembly. O alvo
-\texttt{profile-sequential-gprof} usa um executável instrumentado separado e
-grava o perfil em \path{resultados/perfil_sequencial/gprof.txt}. Assim, as
-opções de profiling não alteram os binários usados nos experimentos.
-
-O perfil \texttt{gprof} obtido com \texttt{entradas/classicos/acorn.txt}, uma
-matriz de $100\times100$ e $500$ gerações, registrou $5$ milhões de chamadas ao
-kernel de evolução. \texttt{contar\_vizinhas} concentrou $56{,}52\%$ do tempo próprio,
-enquanto \texttt{obter\_indice} concentrou $39{,}13\%$. Juntas, essas funções
-representaram a maior parte do custo sequencial. Esse resultado é coerente com
-a natureza de acesso irregular da vizinhança: a implementação percorre oito
-células por posição e chama uma função para calcular o índice linear em cada
-vizinho.
-
-A oportunidade direta de otimização é specializar o tratamento das células
-internas e das bordas, evitando verificações repetidas dos limites em
-\texttt{contar\_vizinhas}. A instrução usa uma matriz contígua, o que permite
-manter a localidade das linhas horizontais. Uma implementação otimizada deve
-preservar o kernel comum ou ser validada novamente contra a referência.
-
-\section{Oportunidades de paralelização}
-
-A principal oportunidade de paralelização está na atualização das células da
-matriz. Como cada célula da próxima geração depende apenas do estado imutável da
-geração atual, diferentes regiões podem ser calculadas simultaneamente.
-
-A matriz é armazenada por linhas; por isso, a decomposição em faixas horizontais
-contíguas favorece a localidade de memória. As escritas são independentes, pois
-cada participante atualiza apenas sua faixa na matriz da próxima geração. As
-leituras podem alcançar faixas vizinhas, mas utilizam somente a matriz da geração
-atual.
-
-\section{Estratégia de paralelização com Pthreads}
-
-A matriz é dividida estaticamente em faixas horizontais. O quociente da divisão
-da quantidade de linhas por $P$ define o tamanho base, e as linhas restantes são
-distribuídas entre os primeiros participantes. Assim, a diferença entre a maior
-e a menor faixa é de no máximo uma linha.
-
-O valor $P$ representa o total de threads participantes do cálculo, incluindo a
-thread principal. O programa cria $P-1$ workers persistentes, enquanto a própria
-thread principal assume a faixa restante. Duas matrizes booleanas contíguas são
-compartilhadas: uma é
-lida como geração atual e a outra recebe a próxima geração. Cada participante
-escreve somente em sua própria faixa. Uma barreira reutilizável ao final de cada
-geração garante que nenhum participante troque os papéis das matrizes enquanto
-outro ainda calcula a geração anterior.
-
-A thread principal cria as threads auxiliares, libera todas para o cálculo por
-meio de uma variável de condição e processa sua própria faixa. Ao final, aguarda
-os $P-1$ workers com \texttt{pthread\_join}. O controle de início impede que uma
-criação parcial de threads conduza alguns participantes a uma barreira que
-nunca seria completada. Nesse caso, as threads já criadas são liberadas em modo
-de cancelamento e os recursos são recolhidos.
-
-A quantidade total de participantes deve satisfazer $1 \leq P \leq L$, em que
-$L$ é a quantidade de linhas da matriz. Para $P=1$, a simulação ocorre
-inteiramente na thread principal, sem criar uma thread auxiliar. Portanto, essa
-configuração mede a infraestrutura da versão Pthreads sem concorrência entre
-threads.
-
-As duas versões chamam o mesmo kernel para evoluir uma faixa de linhas. A
-diferença experimental fica concentrada na criação das threads auxiliares, na
-decomposição do domínio e na sincronização por barreira.
-
-\section{Avaliação de desempenho}
-
-\subsection{Métricas}
-
-A avaliação comparará os tempos médios internos das versões sequencial e
-paralela para a mesma entrada e no mesmo ambiente. O \textit{speedup} em relação
-à implementação sequencial será calculado por
+O conjunto experimental contém 18 entradas clássicas, 35 pseudoaleatórias e
+seis entradas de desempenho. As matrizes variam em dimensões, proporção, número
+de gerações e densidade inicial. O trabalho de uma entrada é representado por
 
 \begin{equation}
-    S(P) = \frac{T_{\mathrm{sequencial}}}{T_{\mathrm{paralelo}}(P)},
+    W = L \cdot C \cdot G,
 \end{equation}
 
-em que $P$ representa o total de participantes. A eficiência correspondente
-será calculada por
+em que $L$ é o número de linhas, $C$ o de colunas e $G$ o de gerações. Essa
+medida corresponde à quantidade de atualizações de células realizadas.
 
-\begin{equation}
-    E(P) = \frac{S(P)}{P}.
-\end{equation}
+As entradas clássicas incluem estados estáveis, osciladores, naves, Matusaléns
+e o canhão de Gosper. A seleção se apoia nos padrões apresentados desde a
+divulgação original do Jogo da Vida \parencite{gardner1970life} e no uso desses
+padrões como casos de verificação descrito por \textcite{chin2012flame}. As
+entradas pseudoaleatórias complementam esses casos com diferentes dimensões e
+densidades.
 
-Para separar o ganho do kernel Pthreads do ganho causado pelo aumento de
-participantes, também será calculada a escalabilidade relativa a uma thread:
+Os testes finais foram executados pelo GitHub Actions. O código-fonte, as
+entradas e a automação estão disponíveis no
+\href{https://github.com/SamuelScar/game-of-life-pthreads}{repositório do projeto
+no GitHub}. Cada campanha utilizou 20 repetições e
+$P\in\{1,2,4,8\}$. A Tabela~\ref{tab:ambientes} apresenta somente os recursos
+disponibilizados ao processo em cada runner, e não a capacidade total dos
+modelos de processador informados pelo sistema.
 
-\begin{equation}
-    S_{1}(P) = \frac{T_{\mathrm{Pthreads}}(1)}{T_{\mathrm{Pthreads}}(P)},
-    \qquad
-    E_{1}(P) = \frac{S_{1}(P)}{P}.
-\end{equation}
+\begin{table}[htbp]
+\centering
+\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Propriedade} & \textbf{Runner AMD} & \textbf{Runner Intel}\\
+\midrule
+Processador & AMD EPYC 9V74 & Intel Xeon 6975P-C\\
+Topologia disponível & 1 núcleo, 2 CPUs lógicas & 2 núcleos, 4 CPUs lógicas\\
+CPUs permitidas & 0--1 & 0--3\\
+Memória total & 7,75 GiB & 15,33 GiB\\
+Virtualização & completa, hypervisor Microsoft & completa, KVM\\
+Sistema & Ubuntu 24.04, x86-64 & Ubuntu 24.04, x86-64\\
+Compilador & GCC 13.3.0, C11, \texttt{-O2} & GCC 13.3.0, C11, \texttt{-O2}\\
+Buffer de cache & 128 MiB & 512 MiB\\
+\bottomrule
+\end{tabular}%
+}
+\caption{Recursos disponibilizados pelos runners do GitHub Actions.}
+\label{tab:ambientes}
+\end{table}
 
-O custo e o sobrecusto paralelo serão obtidos, respectivamente, por
+No AMD, $P=2$ utiliza as duas vias SMT do único núcleo; $P=4$ e $P=8$
+excedem as duas CPUs lógicas. No Intel, $P=2$ ocupa os dois núcleos físicos,
+$P=4$ utiliza as quatro vias SMT e apenas $P=8$ excede a capacidade lógica.
 
-\begin{equation}
-    C(P) = P \cdot T_{\mathrm{paralelo}}(P),
-    \qquad
-    O(P) = C(P) - T_{\mathrm{sequencial}}.
-\end{equation}
+\subsection{Protocolo de medição e métricas}
 
-Essas duas referências não são intercambiáveis. A primeira compara duas
-implementações distintas; a segunda mostra somente a evolução da implementação
-Pthreads quando o número de participantes aumenta.
-
-\subsection{Conjunto de entradas e configurações}
-
-Os experimentos percorrem 18 entradas clássicas, 35 entradas pseudoaleatórias e
-seis cargas de desempenho, com matrizes quadradas e retangulares de diferentes
-dimensões, densidades e quantidades de gerações. A série local utiliza cinco
-repetições por padrão. No GitHub Actions, os valores padrão são dez repetições
-e $P \in \{1,2,4,8\}$, com parâmetros configuráveis antes da execução.
-
-Configurações em que $P>L$ não são executadas, pois cada participante deve
-receber ao menos uma linha. As duas versões são compiladas em C11 com otimização
-\texttt{-O2} dentro do mesmo ambiente baseado em Ubuntu 24.04. O compilador, o
-sistema operacional, a afinidade permitida, a topologia da CPU e a memória
-disponível são registrados junto aos dados brutos.
-
-O planejamento contempla campanhas em ambientes com dois e quatro
-núcleos físicos disponíveis. Em cada ambiente, a referência sequencial e
-todas as configurações Pthreads devem ser medidas na mesma execução. Tempos
-absolutos de máquinas diferentes não serão combinados no cálculo de speedup.
-
-\subsection{Protocolo de medição}
-
-A versão sequencial é medida na mesma série e na mesma máquina das configurações
-paralelas. Cada rodada percorre todas as entradas antes do início da próxima, e
-o ponto inicial e o sentido do percurso variam entre as rodadas. Para cada
-entrada, as configurações também são rotacionadas, distribuindo as versões e as
-quantidades de threads entre diferentes posições da sequência. Em um ciclo
-completo, cada configuração ocupa cada posição uma vez; o ciclo seguinte utiliza
-o sentido inverso.
+A referência sequencial e todas as configurações Pthreads são medidas na mesma
+série e no mesmo runner. Cada rodada percorre todas as entradas antes da rodada
+seguinte. O ponto inicial, o sentido do percurso e a posição das configurações
+são rotacionados para distribuir efeitos de ordem entre as versões.
 
 Antes de cada processo medido, um programa auxiliar percorre um buffer quatro
 vezes maior que a maior cache de dados detectada, limitado entre 64 MiB e
 512 MiB. Esse condicionamento ocorre fora da região temporizada e reduz a
-dependência da cache compartilhada deixada pela execução anterior.
+dependência dos dados deixados pela execução anterior.
 
-O tempo principal, registrado em \texttt{tempo\_simulacao\_segundos}, utiliza
-\texttt{clock\_gettime} com \texttt{CLOCK\_MONOTONIC}. A leitura da entrada ocorre
-antes dessa região e a escrita do estado final é desativada durante os
-experimentos. A região temporizada inclui a alocação da segunda matriz nas duas
-versões. Na versão paralela, inclui também a inicialização dos mecanismos de
-sincronização, a criação das threads auxiliares, as barreiras, os
-\texttt{joins} e a liberação desses recursos.
+O tempo de simulação usa \texttt{clock\_gettime} com
+\texttt{CLOCK\_MONOTONIC}. A leitura da entrada e a escrita do estado final são
+excluídas. A região inclui a alocação da segunda matriz nas duas versões. Na
+versão Pthreads, inclui também estruturas de sincronização, criação das threads,
+barreiras, \texttt{joins} e liberação dos recursos. O \texttt{/usr/bin/time}
+registra separadamente CPU, memória, paginação, trocas de contexto e E/S para o
+processo completo.
 
-As métricas adicionais coletadas por \texttt{/usr/bin/time}---tempo de usuário,
-tempo de sistema, tempo de parede, CPU, memória, paginação, trocas de contexto e
-E/S---abrangem o processo completo. Elas servem como caracterização auxiliar e
-não substituem o tempo interno utilizado no cálculo de speedup e eficiência.
+Para uma mesma entrada, o speedup em relação ao executável sequencial é
 
-O CSV registra a ordem global, a posição da configuração e a execução
-precedente. A independência absoluta não é garantida, pois frequência,
-temperatura, escalonamento e outras atividades do sistema permanecem
-compartilhados. Seus efeitos são reduzidos pelas repetições, pela ordem
-balanceada e pelo uso conjunto de média, mediana e dispersão. A cache de arquivos
-não é descartada, porque a leitura não participa do tempo da simulação e sua
-limpeza alteraria globalmente a máquina.
+\begin{equation}
+    S(P) = \frac{T_{\mathrm{seq}}}{T_{\mathrm{Pth}}(P)}.
+\end{equation}
 
-Além das médias, são calculados desvio-padrão amostral, mínimo, máximo e
-mediana. A mediana complementa a média por ser menos sensível a medições
-atípicas. Configurações com mais participantes que núcleos físicos disponíveis
-são marcadas como \textit{oversubscription} e devem ser interpretadas
-separadamente.
+Como $S(1)$ compara executáveis distintos, a escalabilidade da versão Pthreads
+é avaliada principalmente por
 
-\subsection{Validação funcional}
+\begin{equation}
+    S_1(P) = \frac{T_{\mathrm{Pth}}(1)}{T_{\mathrm{Pth}}(P)},
+    \qquad
+    E_1(P) = \frac{S_1(P)}{P}.
+\end{equation}
 
-A correção funcional é uma condição anterior à análise de desempenho. A
-automação compara as saídas das versões sequencial e Pthreads em casos de borda,
-divisões regulares e irregulares das linhas e entradas pseudoaleatórias. Também
-verifica a rejeição de entradas e parâmetros inválidos.
+O custo normalizado em relação a Pthreads com $P=1$ é
 
-Uma validação local reduzida exercita especificamente a participação da thread
-principal com $P \in \{1,2,4\}$, quantidades pares e ímpares de gerações e um
-limite de tempo para detectar possíveis bloqueios. A mesma validação pode ser
-executada sob o Memcheck para procurar acessos inválidos e vazamentos de
-memória, mantendo o limite de tempo como proteção contra bloqueios.
+\begin{equation}
+    C_1(P) = \frac{P\,T_{\mathrm{Pth}}(P)}{T_{\mathrm{Pth}}(1)}
+           = \frac{P}{S_1(P)}.
+\end{equation}
 
-\subsection{Ameaças à validade}
+A utilização média de CPU é a porcentagem registrada pelo
+\texttt{/usr/bin/time} dividida por 100; assim, valor próximo de 2 representa
+duas CPUs lógicas ocupadas durante o intervalo. As médias agregadas de speedup
+são geométricas. Média aritmética, mediana, desvio-padrão amostral, mínimo e
+máximo são preservados para os tempos.
 
-O condicionamento da cache reduz, mas não elimina, a influência da execução
-anterior. Frequência dinâmica, temperatura, escalonamento do sistema operacional
-e atividades externas ainda podem alterar as medições. Em runners
-virtualizados, a máquina física e a contenção com outros hóspedes também podem
-não ser controláveis.
-
-As repetições, a rotação da ordem e o registro do ambiente reduzem esses riscos,
-mas não os anulam. Por isso, diferenças pequenas devem ser analisadas junto com
-a dispersão, e execuções com \textit{oversubscription} não devem ser tratadas
-como evidência direta da escalabilidade disponível em hardware com mais
-processadores.
-
-\subsection{Automação e artefatos}
-
-O script \path{scripts/executar_experimentos_completos.sh} produz o CSV com
-todas as execuções, o resumo de desempenho e a descrição do ambiente em
-\path{resultados/experimentos_completos/}. O relatório Markdown é gerado por
-\path{scripts/gerar_relatorio_experimentos.sh}.
-
-O workflow \texttt{experimentos-completos.yml} compila as duas versões, compara
-as saídas em casos de borda e entradas pseudoaleatórias, verifica a rejeição de
-entradas inválidas, executa os experimentos, coleta Cachegrind, Massif e
-\texttt{gprof}, e publica o relatório e os dados brutos como artefato. Esse fluxo
-mantém a referência sequencial e as medições Pthreads no mesmo runner.
+O experimento é de escalabilidade forte: a entrada permanece fixa enquanto
+$P$ aumenta. A comparação com a mesma implementação paralela em $P=1$ segue o
+procedimento empregado por \textcite{millan2015performance}. Neste trabalho,
+\textit{oversubscription} designa estritamente $P$ maior que o número de CPUs
+lógicas. Configurações acima dos núcleos físicos, mas dentro das CPUs lógicas,
+são classificadas como uso de SMT.
 
 \section{Resultados e discussão}
 
-A campanha local foi concluída em 23 minutos e 38 segundos em Ubuntu 24.04,
-Linux 6.17, com um Intel Core i5-11300H, quatro núcleos físicos e oito
-processadores lógicos. Foram registradas 292 execuções: 59 versões sequenciais e 233 configurações
-Pthreads. A cache foi condicionada com um buffer de 64 MiB antes de cada
-medição. Como houve apenas uma repetição nesta execução local, os resultados
-devem ser interpretados como uma caracterização inicial, não como uma campanha
-estatística com múltiplas repetições.
+\subsection{Integridade e correção funcional}
 
-A tabela abaixo sintetiza duas cargas de desempenho representativas.
+Cada campanha registrou 5\,840 execuções: 1\,180 sequenciais e 4\,660 Pthreads. Em
+cada CSV foram confirmadas 59 entradas, 20 rodadas, 233 configurações, 39 campos
+por registro, ausência de duplicatas e nenhum status de saída diferente de
+zero. As duas campanhas totalizam 11\,680 execuções válidas.
+
+A validação funcional produziu, em cada workflow, 47 comparações idênticas entre
+as saídas sequencial e Pthreads e 15 rejeições esperadas de entradas ou
+parâmetros inválidos. Portanto, não foi observada divergência funcional nas
+configurações avaliadas. Esse resultado responde à primeira pergunta de
+pesquisa e permite interpretar as diferenças seguintes como diferenças de
+desempenho, não de cálculo.
+
+\subsection{Perfil da versão sequencial}
+
+O perfil detalhado do runner Intel utilizou uma matriz $256\times256$ durante
+100 gerações. O \texttt{gprof} atribuiu 53,85\% do tempo próprio a
+\texttt{contar\_vizinhas}, 23,08\% a \texttt{obter\_indice} e 15,38\% a
+\texttt{calcular\_estado}. Juntas, essas rotinas representam 92,31\% das
+amostras e pertencem ao kernel de atualização distribuído entre as threads.
+
+O Cachegrind registrou aproximadamente 1,91 bilhão de instruções. As faltas
+corresponderam a 0,0210\% das leituras e 0,0464\% das escritas na cache L1 de
+dados, e a 0,000221\% das leituras e 0,001078\% das escritas no último nível
+simulado. Em contraste, 9,61\% dos desvios condicionais foram preditos
+incorretamente. Para essa entrada, o perfil confirma boa localidade e mostra
+maior sensibilidade ao fluxo de controle da contagem de vizinhas. Como o
+Cachegrind simula uma configuração de cache e a entrada cabe nos níveis
+superiores, esses números não caracterizam sozinhos as maiores matrizes.
+
+O Massif encontrou pico de 131616 bytes (128,5 KiB), dominado pelas duas
+matrizes de $256\times256$ valores booleanos. Na entrada $8192\times8192$, o
+RSS máximo médio no runner Intel permaneceu entre 129,62 e 129,73 MiB para
+$P=1,2,4,8$. O número de threads, portanto, teve efeito pequeno sobre a memória
+residente; o volume principal continua sendo determinado pelas duas matrizes.
+
+\subsection{Escalabilidade e topologia}
+
+A Tabela~\ref{tab:agregados} resume as seis entradas de desempenho. Os valores
+de $S(P)$ são mantidos para comparar os executáveis, mas as conclusões sobre
+paralelismo utilizam $S_1(P)$ e $E_1(P)$.
 
 \begin{table}[htbp]
 \centering
-\begin{tabular}{c|rrrrr}
-\hline
-\textbf{Carga} & $P$ & $T_{seq}$ (s) & $T_P$ (s) & $S$ & $E$\\
-\hline
-$1024^2$, 500 gerações & 1 & 28,278846 & 19,362006 & 1,460533 & 146,05\%\\
-$1024^2$, 500 gerações & 2 & 28,278846 & 13,070541 & 2,163556 & 108,18\%\\
-$1024^2$, 500 gerações & 4 & 28,278846 & 8,318745 & 3,399413 & 84,99\%\\
-$1024^2$, 500 gerações & 8 & 28,278846 & 7,300683 & 3,873452 & 48,42\%\\
-\hline
-$8192^2$, 50 gerações & 1 & 145,074737 & 104,782795 & 1,384528 & 138,45\%\\
-$8192^2$, 50 gerações & 2 & 145,074737 & 63,034194 & 2,301524 & 115,08\%\\
-$8192^2$, 50 gerações & 4 & 145,074737 & 43,686934 & 3,320781 & 83,02\%\\
-$8192^2$, 50 gerações & 8 & 145,074737 & 31,999475 & 4,533660 & 56,67\%\\
-\hline
+\small
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+\textbf{Runner} & $P$ & $S(P)$ & $S_1(P)$ & $E_1(P)$ & \textbf{CPUs médias}\\
+\midrule
+AMD & 1 & 1,379 & 1,000 & 100,0\% & 0,990\\
+AMD & 2 & 1,400 & 1,016 & 50,8\% & 1,978\\
+AMD & 4 & 1,396 & 1,013 & 25,3\% & 1,976\\
+AMD & 8 & 1,395 & 1,012 & 12,7\% & 1,973\\
+\midrule
+Intel & 1 & 1,711 & 1,000 & 100,0\% & 0,990\\
+Intel & 2 & 3,385 & 1,978 & 98,9\% & 1,978\\
+Intel & 4 & 3,496 & 2,043 & 51,1\% & 3,953\\
+Intel & 8 & 3,481 & 2,034 & 25,4\% & 3,913\\
+\bottomrule
 \end{tabular}
-\caption{Tempos e ganhos das cargas quadradas de maior duração.}
-\label{tab:desempenho_quadrado}
+\caption{Médias geométricas de speedup nas seis entradas de desempenho.}
+\label{tab:agregados}
 \end{table}
 
-Nas duas cargas, a execução com dois participantes foi aproximadamente de
-$2{,}16$ a $2{,}30$ vezes mais rápida que a sequencial. Com quatro, o ganho
-foi próximo de $3{,}32$ a $3{,}40$ vezes. Com oito participantes, o melhor
-resultado observado foi de $4{,}53$ vezes na carga $8192^2$, com eficiência de
-$56{,}67\%$. Esse comportamento é compatível com quatro núcleos físicos e oito
-processadores lógicos. As configurações acima de quatro participantes são
-classificadas como oversubscription neste hardware e incluem simultaneamente o
-custo adicional de criação das threads, barreiras e trocas de contexto.
+O fato de $S(1)$ ser 1,379 no AMD e 1,711 no Intel não representa ganho
+paralelo, pois $P=1$ não cria uma thread auxiliar. Esses valores mostram uma
+diferença sistemática entre os executáveis que não foi isolada pelo desenho do
+experimento. Por isso, somar esse ganho ao obtido com mais participantes
+superestimaria a paralelização; $S_1$ é a referência adequada para responder às
+perguntas sobre escalabilidade.
 
-Os resultados retangulares também confirmaram a importância da carga. Na
-matriz horizontal $2048\times8192$, o tempo caiu de $101{,}600184$ s em uma
-thread para $28{,}496014$ s com oito, obtendo speedup de $3{,}565418$ e
-eficiência sequencial de $44{,}57\%$. Na matriz vertical $8192\times2048$, a
-melhoria foi de $103{,}992752$ s para $21{,}569500$ s, com speedup de
-$4{,}821287$ e eficiência de $60{,}27\%$. Não é correto comparar diretamente
-matrizes retangulares com a carga quadrada, mas a tendência mostra que o ganho
-cresce quando existe trabalho suficiente para amortizar a sincronização.
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.88\textwidth,
+    height=0.48\textwidth,
+    xlabel={Participantes ($P$)},
+    ylabel={Speedup interno $S_1(P)$},
+    xtick={1,2,4,8},
+    ymin=0.9,
+    ymax=2.15,
+    grid=major,
+    legend style={at={(0.5,-0.20)},anchor=north,legend columns=2}
+]
+\addplot[blue!70!black,dashed,very thick,mark=square*] coordinates
+    {(1,1.000) (2,1.016) (4,1.013) (8,1.012)};
+\addplot[orange!85!black,very thick,mark=*] coordinates
+    {(1,1.000) (2,1.978) (4,2.043) (8,2.034)};
+\legend{AMD: 1 núcleo/2 CPUs lógicas,Intel: 2 núcleos/4 CPUs lógicas}
+\end{axis}
+\end{tikzpicture}
+\caption{Escalabilidade interna da versão Pthreads nas duas topologias.}
+\label{fig:escalabilidade_runners}
+\end{figure}
 
-Em cargas pequenas, como matrizes $5\times5$, $10\times10$ e $20\times20$, o
-Pthreads de uma thread pode ser mais rápido ou mais lento que a implementação
-sequencial devido às diferenças de infraestrutura. Ao aumentar a quantidade
-de participantes, os tempos frequentemente aumentam ou apresentam oscilações,
-porque o custo de barreiras e criação supera o trabalho disponível em cada
-faixa. Isso explica por que a avaliação deve separar cargas pequenas e cargas
-de desempenho.
+No AMD, $P=2$ ocupou a segunda via SMT, mas elevou $S_1$ apenas para 1,016.
+Cinco das seis cargas apresentaram ganho entre 0,1\% e 1,1\%; a exceção foi a
+matriz $8192\times8192$, com 7,5\%, justamente onde o coeficiente de variação
+de $P=1$ chegou a 6,68\%. O pequeno ganho agregado não deve, portanto, ser
+tratado como escalabilidade consistente. $P=4$ e $P=8$ também permaneceram
+próximos de 1.
 
-Não foram realizadas variações controladas de dois ambientes com disponibilidade
-diferente de processadores nesta campanha local. Portanto, não há evidência
-para confirmar ou rejeitar a escalabilidade além de oito participantes. Como
-cada carga foi executada uma vez, os picos numéricos devem ser interpretados
-com cautela. A campanha possui repetição configurada na automação e pode ser
-executada novamente com cinco ou dez repetições para obter desvios, medianas e
-intervalos estatísticos.
+No Intel, o comportamento foi estável nas seis cargas: $S_1(2)$ variou de 1,969
+a 1,983 e $S_1(4)$, de 2,036 a 2,059. Os dois núcleos físicos quase dividiram o
+tempo pela metade. Ativar as vias SMT restantes elevou o speedup médio de 1,978
+para 2,043, um ganho adicional de apenas 3,3\%. $P=8$ reduziu ligeiramente o
+resultado para 2,034. O maior coeficiente de variação paralelo nessas cargas foi
+0,44\%, bem menor que a diferença entre $P=1$ e $P=2$.
 
-\section{Considerações finais}
+\subsection{Utilização de CPU, eficiência e oversubscription}
 
-A implementação sequencial e paralela preserva os resultados em 47 casos de
-equivalência funcional e rejeita 15 classes de entradas inválidas. A thread
-principal participa da decomposição em todas as configurações testadas.
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.88\textwidth,
+    height=0.48\textwidth,
+    ybar=3pt,
+    bar width=10pt,
+    xlabel={Participantes ($P$)},
+    ylabel={CPUs lógicas médias utilizadas},
+    xtick={1,2,4,8},
+    ymin=0,
+    ymax=4.4,
+    grid=major,
+    enlarge x limits=0.15,
+    legend style={at={(0.5,-0.18)},anchor=north,legend columns=2}
+]
+\addplot[draw=blue!70!black,fill=blue!20] coordinates
+    {(1,0.990) (2,1.978) (4,1.976) (8,1.973)};
+\addplot[draw=orange!85!black,fill=orange!55] coordinates
+    {(1,0.990) (2,1.978) (4,3.953) (8,3.913)};
+\legend{AMD,Intel}
+\end{axis}
+\end{tikzpicture}
+\caption{Utilização média de CPU nas seis entradas de desempenho.}
+\label{fig:cpu_runners}
+\end{figure}
 
-O gprof identificou \texttt{contar\_vizinhas} e \texttt{obter\_indice} como os
-principais consumidores do tempo sequencial. A paralelização foi portanto bem
-adequada ao domínio, pois a atualização das células é independente dentro de
-cada faixa. Os resultados reais mostram ganho em cargas grandes, eficiência
-razoável até quatro threads e queda de eficiência em oito threads, coerente com
-o custo da sincronização e com oito threads em oversubscription sobre quatro
-núcleos físicos.
+A Figura~\ref{fig:cpu_runners} separa ocupação de CPU de ganho de desempenho.
+No AMD, $P=2$ utiliza aproximadamente duas CPUs lógicas, mas ambas pertencem ao
+mesmo núcleo físico e $S_1$ permanece próximo de 1. Em $P=4$ e $P=8$, a
+ocupação continua limitada a aproximadamente duas CPUs. No Intel, $P=2$ ocupa
+dois núcleos e quase duplica o desempenho; $P=4$ ocupa as quatro CPUs lógicas,
+mas não duplica novamente o speedup.
 
-A implementação atende à interface definida no enunciado: entrada textual,
-gerações, dimensões, células iniciais e coordenadas, além da saída no mesmo
-formato. Os dados brutos, o resumo, o perfil gprof e o relatório Markdown estão
-presentes no diretório \texttt{resultados}. Valgrind não estava instalado no
-ambiente local sem privilégios administrativos, portanto Cachegrind e Massif
-não puderam ser executados nesta máquina.
+Essa diferença aparece também na eficiência. No AMD, $E_1(2)=50,8\%$ porque
+duas vias SMT não equivalem a dois núcleos. No Intel, $E_1(2)=98,9\%$; em
+$P=4$, o uso de SMT reduz a eficiência para 51,1\%. Os valores de $P=4$ e
+$P=8$ no AMD e de $P=8$ no Intel são casos de oversubscription: existem mais
+threads executáveis que CPUs lógicas, e o escalonador precisa alterná-las sem
+adicionar capacidade de processamento.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.88\textwidth,
+    height=0.48\textwidth,
+    ybar=3pt,
+    bar width=10pt,
+    xlabel={Participantes ($P$)},
+    ylabel={Custo normalizado $C_1(P)$},
+    xtick={1,2,4,8},
+    ymin=0,
+    ymax=8.3,
+    grid=major,
+    enlarge x limits=0.15,
+    legend style={at={(0.5,-0.18)},anchor=north,legend columns=2}
+]
+\addplot[draw=blue!70!black,fill=blue!20] coordinates
+    {(1,1.000) (2,1.969) (4,3.950) (8,7.905)};
+\addplot[draw=orange!85!black,fill=orange!55] coordinates
+    {(1,1.000) (2,1.011) (4,1.958) (8,3.933)};
+\legend{AMD,Intel}
+\end{axis}
+\end{tikzpicture}
+\caption{Custo computacional normalizado nas seis entradas de desempenho.}
+\label{fig:custo_runners}
+\end{figure}
+
+No AMD, dobrar os participantes praticamente dobra o custo sem reduzir o tempo.
+No Intel, $P=2$ mantém $C_1$ em 1,011 porque quase divide o tempo pela metade;
+$P=4$ é apenas 3,3\% mais rápido, mas eleva o custo para 1,958. Em $P=8$, o
+custo chega a 3,933 sem ganho de desempenho. Se o objetivo for o menor tempo,
+$P=4$ é a melhor configuração nas cargas grandes do Intel; se também houver
+preocupação com eficiência e consumo de recursos, $P=2$ oferece o melhor
+equilíbrio.
+
+\subsection{Influência do tamanho da carga}
+
+A Figura~\ref{fig:speedup_carga} relaciona $S_1(P)$ ao trabalho $W$. Entradas
+com o mesmo valor de $W$ são combinadas por média geométrica, mas continuam
+separadas por runner e por quantidade de participantes. Essa forma de
+apresentação segue a preocupação de \textcite{gibson2015efficient} com o efeito
+da dimensão da malha e da quantidade de gerações sobre a amortização do custo
+paralelo.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.98\textwidth]{speedup-por-carga.png}
+\caption{Speedup interno em função das atualizações de células. Cada ponto é a
+média geométrica das entradas com o mesmo $W$; a linha horizontal representa o
+desempenho de Pthreads com $P=1$. Os ambientes são apresentados em painéis
+empilhados para preservar a escala e facilitar a comparação das curvas.}
+\label{fig:speedup_carga}
+\end{figure}
+
+Nas menores entradas, o tempo útil não compensa criação, sincronização e
+finalização das threads. No Intel, o primeiro grupo agregado acima de 1 para
+$P=4$ aparece em torno de 405 mil atualizações, mas o ganho só se torna amplo e
+estável a partir de alguns milhões de atualizações. Acima de 6,5 milhões,
+$S_1(4)$ já se aproxima de 1,9; nas seis cargas de desempenho, acima de 524
+milhões, estabiliza próximo de 2,04.
+
+No AMD, aumentar a carga reduz a penalidade, mas a curva converge para 1 porque
+o runner dispõe de apenas um núcleo físico. O ponto próximo de 1,07 na maior
+carga coincide com a maior dispersão observada e não altera essa conclusão. A
+topologia define o teto, enquanto o tamanho da entrada determina se existe
+trabalho suficiente para aproximar-se dele.
+
+Essa relação também aparece na configuração de menor tempo médio entre as 59
+entradas. No AMD, $P=1$ venceu 52 entradas, $P=2$ venceu seis e $P=4$, uma. No
+Intel, $P=1$ venceu 30 e $P=4$, 29. Nenhuma entrada foi mais rápida em $P=8$.
+Portanto, escolher sempre o maior valor de $P$ seria inadequado: entradas
+pequenas devem permanecer com um participante, enquanto entradas grandes podem
+usar os núcleos físicos disponíveis.
+
+\subsection{Limitações}
+
+As campanhas representam somente duas topologias virtualizadas: um núcleo
+físico com duas CPUs lógicas e dois núcleos físicos com quatro CPUs lógicas.
+Elas não demonstram escalabilidade em quatro ou oito núcleos físicos. Os valores
+de $P=4$ e $P=8$ devem ser interpretados de acordo com a topologia da
+Tabela~\ref{tab:ambientes}, e não como execuções equivalentes em quatro e oito
+núcleos.
+
+As campanhas foram coletadas em revisões consecutivas do projeto. Cada uma
+possui suas próprias referências sequencial e Pthreads com $P=1$, mas os tempos
+absolutos das duas máquinas não constituem um benchmark direto de hardware. A
+comparação entre runners se restringe ao formato das curvas e às métricas
+normalizadas dentro de cada campanha.
+
+A diferença entre o executável sequencial e Pthreads com $P=1$ não foi isolada
+em nível de código gerado. Por esse motivo, $S(P)$ é apresentado como comparação
+entre implementações, mas não sustenta sozinho uma conclusão sobre
+paralelização. O \texttt{gprof}, o Cachegrind e o Massif caracterizam uma entrada
+específica e executáveis instrumentados; os tempos nativos das 20 repetições
+continuam sendo a evidência principal de desempenho.
+
+\section{Conclusão}
+
+A versão Pthreads preservou o resultado da versão sequencial nas comparações
+funcionais e as duas campanhas completaram 11\,680 execuções válidas. O perfil
+confirmou que o kernel de atualização concentra o trabalho, justificando a
+decomposição da matriz por linhas.
+
+O tamanho da carga determina se o custo das threads pode ser amortizado, mas a
+quantidade de núcleos físicos determina o teto observado. No runner AMD, com um
+núcleo físico, a ocupação de duas CPUs lógicas não produziu ganho consistente.
+No Intel, os dois núcleos físicos alcançaram $S_1(2)=1,978$ com 98,9\% de
+eficiência. Usar as quatro vias SMT elevou o speedup para 2,043, apenas 3,3\%
+acima de $P=2$, e reduziu a eficiência para 51,1\%.
+
+A execução acima da capacidade lógica não trouxe benefício: $P=8$ reduziu
+ligeiramente o desempenho no Intel e multiplicou o custo; no AMD, $P=4$ e
+$P=8$ também permaneceram limitados às duas CPUs lógicas. Assim, a melhor
+política não é maximizar o número de threads. Entradas pequenas favorecem
+$P=1$; para cargas grandes, deve-se priorizar os núcleos físicos e usar SMT
+somente quando o pequeno ganho adicional justificar o custo. Uma avaliação
+futura em uma mesma revisão do código e em máquinas com quatro e oito núcleos
+físicos permitiria estender essa conclusão para níveis maiores de paralelismo.
+
+\clearpage
+\begingroup
+\singlespacing
+\small
+\printbibliography[heading=bibintoc,title={Referências}]
+\endgroup
+
 \end{document}

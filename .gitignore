@@ -6,11 +6,15 @@ gmon.out
 
 # Arquivos gerados pela compilacao do relatorio
 docs/*.aux
+docs/*.bbl
+docs/*.bcf
+docs/*.blg
 docs/*.fdb_latexmk
 docs/*.fls
 docs/*.log
 docs/*.out
 docs/*.pdf
+docs/*.run.xml
 docs/*.synctex.gz
 docs/*.toc
 
