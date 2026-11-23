@@ -8,10 +8,30 @@ linhas.
 
 ## Requisitos
 
-- Docker
-- Docker Compose
+- GCC, Make e uma implementação de Pthreads; ou
+- Docker com Docker Compose.
 
-## Preparação do ambiente
+## Compilação e execução local
+
+Compile as implementações diretamente com:
+
+```bash
+make
+```
+
+Execute a versão sequencial:
+
+```bash
+make run-sequential INPUT=entradas/exemplo.txt
+```
+
+Execute a versão paralela informando o total de participantes:
+
+```bash
+make run-parallel INPUT=entradas/exemplo.txt THREADS=4
+```
+
+## Execução com Docker
 
 Construa a imagem de desenvolvimento:
 
@@ -34,21 +54,15 @@ docker compose run --rm dev
 - `src/paralelo.c`: implementação Pthreads;
 - `src/simulacao.h`: representação e kernel comuns às duas versões;
 - `src/condicionar_cache.c`: condicionamento controlado da cache entre medições;
-- `scripts/validar_equivalencia.sh`: comparação funcional antes dos benchmarks;
-- `scripts/validar_thread_principal.sh`: verificação local reduzida da
-  participação da thread principal;
-- `scripts/validar_entradas_invalidas.sh`: verifica rejeição de entradas e parâmetros inválidos;
 - `scripts/suporte_experimentos.sh`: detecção e condicionamento da cache;
-- `scripts/executar_experimentos_sequenciais.sh`: série apenas sequencial;
 - `scripts/executar_experimentos_completos.sh`: comparação sequencial e paralela;
 - `scripts/processar_resultados_experimentos.sh`: valida e consolida medições já coletadas;
-- `scripts/validar_processamento_resultados.sh`: exercita a consolidação de
-  ponta a ponta sobre uma fixture pequena;
 - `scripts/coletar_perfil_sequencial.sh`: profiling detalhado da referência;
 - `scripts/gerar_relatorio_experimentos.sh`: relatório Markdown das medições;
-- `.github/workflows/experimentos-completos.yml`: automação da série completa.
+- `.github/workflows/experimentos-completos.yml`: automação da série completa;
+- `docs/relatorio.tex`: fonte do relatório técnico.
 
-## Compilação
+### Compilação no container
 
 Compile as duas versões com:
 
@@ -56,8 +70,9 @@ Compile as duas versões com:
 docker compose run --rm dev make
 ```
 
-Os executáveis `sequencial`, `paralelo` e `condicionar-cache` serão gerados na
-pasta `bin/`.
+Os executáveis `sequencial` e `paralelo` serão gerados na pasta `bin/`. O
+condicionador de cache é compilado automaticamente apenas quando a campanha de
+experimentos é executada.
 
 ## Formato da entrada
 
@@ -82,7 +97,7 @@ As coordenadas começam em zero. Células fora dos limites da matriz são
 consideradas mortas. Coordenadas repetidas ou fora da matriz tornam a entrada
 inválida.
 
-## Execução
+### Execução no container
 
 Execute a versão sequencial informando o arquivo de entrada:
 
@@ -107,35 +122,6 @@ processa uma faixa e são criadas `THREADS - 1` threads auxiliares. Com
 O retorno da barreira é verificado a cada geração; um erro devolvido pela
 biblioteca é registrado e faz a simulação terminar com falha depois que as
 threads auxiliares são recolhidas.
-
-## Visualização do estado final
-
-A saída oficial permanece no formato textual definido pelo trabalho. Para gerar
-uma representação visual separada em SVG, execute:
-
-```bash
-docker compose run --rm dev make visualize-sequential INPUT=entradas/exemplo.txt
-```
-
-O arquivo será criado em
-`resultados/visualizacoes/estado-final.svg`. Outro caminho pode ser informado
-com `SVG_OUTPUT`:
-
-```bash
-docker compose run --rm dev make visualize-sequential \
-  INPUT=entradas/exemplo.txt \
-  SVG_OUTPUT=resultados/visualizacoes/exemplo.svg
-```
-
-O script também pode converter um estado já salvo, sem executar novamente a
-simulação:
-
-```bash
-python3 scripts/gerar_svg.py resultado.txt --saida resultado.svg
-```
-
-As células vivas são desenhadas em cor escura. Para matrizes de até 100 linhas
-ou colunas, o SVG também exibe a grade das células.
 
 ## Entradas disponíveis
 
@@ -188,13 +174,6 @@ As sementes fazem parte dos nomes dos arquivos. Isso mantém as posições
 aleatórias reproduzíveis entre a versão sequencial, a versão paralela e as
 execuções do GitHub Actions.
 
-Essas entradas e as cargas de desempenho descritas a seguir podem ser recriadas
-com:
-
-```bash
-docker compose run --rm dev make generate-random-inputs
-```
-
 ### Entradas de desempenho
 
 O diretório `entradas/desempenho/` contém seis cargas maiores, separadas das
@@ -205,56 +184,11 @@ configuração utiliza aproximadamente 128 MiB nas duas matrizes da simulação.
 Essas entradas foram dimensionadas para produzir execuções sequenciais com
 duração suficiente para comparar speedup e eficiência da versão com Pthreads.
 Com dez repetições, elas acrescentam aproximadamente 99,6 bilhões de
-atualizações de célula à série sequencial.
+atualizações de célula às execuções sequenciais da campanha completa.
 
-Qualquer uma delas pode ser usada com a visualização. Por exemplo:
+## Métricas e perfil
 
-```bash
-docker compose run --rm dev make visualize-sequential \
-  INPUT=entradas/classicos/planador.txt \
-  SVG_OUTPUT=resultados/visualizacoes/planador.svg
-```
-
-## Experimentos sequenciais
-
-A série executa todas as entradas de `entradas/classicos/`,
-`entradas/aleatorias/` e `entradas/desempenho/`. Cada arquivo define suas
-próprias dimensões, quantidade de gerações e células vivas iniciais. Por padrão,
-cada entrada é executada cinco vezes localmente:
-
-```bash
-docker compose run --rm dev make experiments-sequential
-```
-
-A quantidade de repetições pode ser personalizada:
-
-```bash
-docker compose run --rm \
-  -e REPETICOES=3 \
-  dev make experiments-sequential
-```
-
-As execuções são intercaladas por rodada. A entrada inicial e o sentido do
-percurso variam entre as rodadas, evitando que cada arquivo seja sempre medido
-depois do mesmo antecessor. Antes de cada processo temporizado, um programa
-auxiliar percorre um buffer maior que a maior cache de dados detectada. Essa
-etapa ocorre fora da medição e reduz a dependência do estado deixado pela
-execução anterior.
-
-Cada série gera:
-
-- `resultados/sequencial/execucoes.csv`, com o nome, a categoria, as dimensões
-  e todas as medições de cada entrada, incluindo a ordem, a execução
-  precedente e os parâmetros de condicionamento da cache;
-- `resultados/relatorio_experimentos.md`, com ambiente, médias, desvios-padrão,
-  mínimos e máximos.
-
-Os tempos incluem somente a simulação das gerações. A leitura do arquivo e a
-escrita do estado final ficam fora da medição.
-
-### Métricas de recursos
-
-Cada execução da série registra no CSV:
+Cada execução da campanha completa registra no CSV:
 
 - tempo interno da simulação;
 - tempos de usuário, sistema e parede;
@@ -294,49 +228,6 @@ Não existe uma métrica genérica de "memória de registradores" em tempo de
 execução; o arquivo assembly mostra quais registradores foram escolhidos pelo
 compilador.
 
-## Validação funcional
-
-Para uma verificação local curta da participação da thread principal, execute:
-
-```bash
-docker compose run --rm -T dev make validate-main-thread
-```
-
-O teste reduzido compara a versão Pthreads com a sequencial em duas matrizes,
-com quantidades par e ímpar de gerações e com 1, 2 e 4 participantes. Cada
-execução possui limite de tempo para detectar um possível bloqueio na barreira.
-Os arquivos temporários são removidos ao final.
-
-Para repetir o mesmo teste com verificação de vazamentos pelo Valgrind:
-
-```bash
-docker compose run --rm -T dev make validate-main-thread-memory
-```
-
-Essa variante executa o Memcheck com 1, 2 e 4 participantes em uma das entradas
-reduzidas e falha ao encontrar erro de memória ou bloco não liberado.
-
-Antes de medir desempenho, compare as saídas sequencial e Pthreads e confirme
-que entradas e parâmetros inválidos são rejeitados:
-
-```bash
-docker compose run --rm \
-  -e THREADS_LISTA="1 2 4 8" \
-  dev make validate
-```
-
-Essa etapa inclui matrizes `1x1`, `1xN`, `Nx1`, quantidades pares e ímpares de
-gerações, divisões irregulares de linhas, uma thread por linha e entradas
-aleatórias com sementes fixas. Também verifica coordenadas repetidas ou fora dos
-limites, arquivos incompletos e quantidades inválidas de threads. A validação
-ocorre fora da série temporizada e interrompe o fluxo ao encontrar divergência.
-A lista de threads deve incluir `1`, usada como baseline da implementação
-Pthreads. O mesmo alvo também valida a sintaxe dos scripts Bash e dos blocos
-AWK e exercita a consolidação completa sobre uma fixture pequena. Essa
-verificação passa pela contagem das medições, validação do CSV, geração do
-resumo e conferência das configurações antes de iniciar a etapa longa do
-workflow.
-
 ## Experimentos completos
 
 A série paralela executa as mesmas entradas na versão sequencial e na versão
@@ -361,7 +252,7 @@ essa entrada. A lista deve incluir uma thread para permitir o cálculo da
 escalabilidade interna da versão Pthreads. A série gera:
 
 - `resultados/experimentos_completos/execucoes.csv`, com as mesmas métricas de
-  tempo, CPU, memória, paginação, contexto e I/O da série sequencial, além da
+  tempo, CPU, memória, paginação, contexto e I/O, além da
   quantidade de threads, oversubscription, distribuição das linhas entre os
   participantes, ordem da medição, configuração precedente e condicionamento
   da cache;
@@ -383,8 +274,8 @@ sequencial é executada na mesma série para evitar comparar medições produzid
 em máquinas ou momentos diferentes. O resumo também calcula o speedup de cada
 configuração em relação a Pthreads com uma thread, separando o ganho do kernel
 do ganho obtido ao aumentar os participantes. Cinco repetições são usadas
-localmente por padrão, assim como na série sequencial. Cada rodada percorre
-todas as entradas antes de iniciar a próxima. O ponto inicial e o sentido do
+localmente por padrão. Cada rodada percorre todas as entradas antes de iniciar
+a próxima. O ponto inicial e o sentido do
 percurso variam, e as configurações são rotacionadas de acordo com a rodada e a
 entrada.
 Assim, sequencial e Pthreads ocupam posições diferentes e não mantêm sempre o
@@ -443,8 +334,8 @@ quantidade de repetições e a lista de threads podem ser alteradas antes de
 iniciar a execução. As cargas de desempenho tornam essa série consideravelmente
 mais longa, e a duração depende do processador atribuído ao runner.
 
-O workflow compila as duas versões, valida equivalência e tratamento de erros,
-executa a série completa, coleta Cachegrind, Massif e `gprof`, e publica no
+O workflow compila as duas versões, executa a série completa, coleta Cachegrind,
+Massif e `gprof`, e publica no
 resumo da execução as tabelas sequencial e paralela. As entradas, os CSVs, o
 ambiente, o profiling e o relatório são armazenados como artefato por 30 dias.
 

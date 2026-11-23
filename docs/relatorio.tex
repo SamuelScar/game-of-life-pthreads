@@ -173,8 +173,8 @@ troca das matrizes. Um retorno diferente registra atomicamente o primeiro códig
 de erro e ativa uma sinalização compartilhada, consultada pelos participantes
 antes da troca. Depois dos \texttt{joins}, o programa apresenta o código e sua
 descrição e encerra a simulação com falha. Esse tratamento cobre erros
-efetivamente devolvidos pela biblioteca; o limite de tempo da validação continua
-sendo a proteção contra uma chamada que não retorne.
+efetivamente devolvidos pela biblioteca; o limite de tempo usado na validação
+foi a proteção contra uma chamada que não retornasse.
 
 As versões são executáveis diferentes, apesar de compartilharem o código-fonte
 do kernel. Por isso, o ganho da versão Pthreads sobre o executável sequencial e
@@ -182,12 +182,12 @@ o ganho provocado pelo aumento de $P$ são tratados como medidas distintas.
 
 \subsection{Validação e perfil da versão sequencial}
 
-A correção funcional é verificada antes da avaliação de desempenho. A automação
-compara as saídas sequencial e Pthreads em casos de borda, divisões regulares e
-irregulares das linhas, quantidades pares e ímpares de gerações e entradas
-pseudoaleatórias. Também verifica a rejeição de arquivos e parâmetros
-inválidos. A validação da thread principal usa limite de tempo para detectar
-possíveis bloqueios e pode ser executada sob o Memcheck.
+A correção funcional foi verificada antes das campanhas de desempenho. A
+automação comparou as saídas sequencial e Pthreads em casos de borda, divisões
+regulares e irregulares das linhas, quantidades pares e ímpares de gerações e
+entradas pseudoaleatórias. Também foi verificada a rejeição de arquivos e
+parâmetros inválidos. A validação da thread principal usou limite de tempo para
+detectar possíveis bloqueios e foi executada sob o Memcheck.
 
 O perfil sequencial utiliza três instrumentos complementares. O \texttt{gprof}
 identifica a distribuição do tempo de CPU entre as funções; o Cachegrind simula

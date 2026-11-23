@@ -5,31 +5,20 @@ set -euo pipefail
 diretorio_script="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 raiz_projeto="$(cd -- "$diretorio_script/.." && pwd)"
 diretorio_resultados="$raiz_projeto/resultados"
-arquivo_resultados_sequencial="$diretorio_resultados/sequencial/execucoes.csv"
 arquivo_resultados_completo="$diretorio_resultados/experimentos_completos/execucoes.csv"
 arquivo_resumo_paralelo="$diretorio_resultados/experimentos_completos/resumo_desempenho.csv"
 arquivo_ambiente_paralelo="$diretorio_resultados/experimentos_completos/ambiente_execucao.txt"
-arquivo_inicio="$diretorio_resultados/sequencial/inicio_execucao.txt"
 arquivo_relatorio="$diretorio_resultados/relatorio_experimentos.md"
-arquivo_resultados="$arquivo_resultados_sequencial"
-coluna_versao=0
-
-if [[ -f "$arquivo_resultados_completo" ]]; then
-    arquivo_resultados="$arquivo_resultados_completo"
-    coluna_versao=30
-fi
+arquivo_resultados="$arquivo_resultados_completo"
 
 mkdir -p "$diretorio_resultados"
 
 inicio_iso="indisponivel"
 inicio_epoch=""
 
-if ((coluna_versao == 30)) && [[ -f "$arquivo_ambiente_paralelo" ]]; then
+if [[ -f "$arquivo_ambiente_paralelo" ]]; then
     inicio_iso="$(awk -F= '$1 == "inicio_utc" { print $2; exit }' "$arquivo_ambiente_paralelo")"
     inicio_epoch="$(awk -F= '$1 == "inicio_epoch" { print $2; exit }' "$arquivo_ambiente_paralelo")"
-elif [[ -f "$arquivo_inicio" ]]; then
-    inicio_iso="$(sed -n '1p' "$arquivo_inicio")"
-    inicio_epoch="$(sed -n '2p' "$arquivo_inicio")"
 fi
 
 fim_iso="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -70,8 +59,8 @@ quantidade_entradas=0
 
 if [[ -f "$arquivo_resultados" ]]; then
     quantidade_execucoes="$(
-        awk -F, -v coluna_versao="$coluna_versao" '
-            NR > 1 && (coluna_versao == 0 || $coluna_versao == "sequencial") {
+        awk -F, '
+            NR > 1 && $30 == "sequencial" {
                 quantidade++
             }
 
@@ -79,9 +68,9 @@ if [[ -f "$arquivo_resultados" ]]; then
         ' "$arquivo_resultados"
     )"
     quantidade_entradas="$(
-        awk -F, -v coluna_versao="$coluna_versao" '
+        awk -F, '
             NR > 1 \
-                && (coluna_versao == 0 || $coluna_versao == "sequencial") \
+                && $30 == "sequencial" \
                 && !($1 in entradas) {
                 entradas[$1] = 1
                 quantidade++
@@ -101,7 +90,7 @@ if [[ -f "$arquivo_resultados_completo" ]]; then
     )"
 fi
 
-if ((coluna_versao == 30)) && [[ -f "$arquivo_ambiente_paralelo" ]]; then
+if [[ -f "$arquivo_ambiente_paralelo" ]]; then
     cache_condicionada="$(
         awk -F= '$1 == "cache_condicionada" { print $2; exit }' \
             "$arquivo_ambiente_paralelo"
@@ -117,15 +106,6 @@ if ((coluna_versao == 30)) && [[ -f "$arquivo_ambiente_paralelo" ]]; then
     semantica_quantidade_threads="$(
         awk -F= '$1 == "semantica_quantidade_threads" { print $2; exit }' \
             "$arquivo_ambiente_paralelo"
-    )"
-elif [[ -f "$arquivo_inicio" ]]; then
-    cache_condicionada="$(
-        awk -F= '$1 == "cache_condicionada" { print $2; exit }' \
-            "$arquivo_inicio"
-    )"
-    cache_condicionamento_bytes="$(
-        awk -F= '$1 == "cache_condicionamento_bytes" { print $2; exit }' \
-            "$arquivo_inicio"
     )"
 fi
 
@@ -156,12 +136,10 @@ semantica_quantidade_threads="${semantica_quantidade_threads:-indisponivel}"
     printf '| Processadores lógicos | %s |\n' "$cpus_logicas"
     printf '| Memória total | %s |\n' "$memoria_total"
     printf '| Compilador | %s |\n' "$versao_gcc"
-    if ((coluna_versao == 30)); then
-        printf '| Thread principal participa do cálculo | %s |\n' \
-            "$thread_principal_participa"
-        printf '| Significado da quantidade de threads | %s |\n' \
-            "$semantica_quantidade_threads"
-    fi
+    printf '| Thread principal participa do cálculo | %s |\n' \
+        "$thread_principal_participa"
+    printf '| Significado da quantidade de threads | %s |\n' \
+        "$semantica_quantidade_threads"
     printf '| Cache condicionada antes de cada medição | %s |\n' \
         "$cache_condicionada"
     printf '| Buffer de condicionamento da cache (bytes) | %s |\n' \
@@ -181,8 +159,8 @@ semantica_quantidade_threads="${semantica_quantidade_threads:-indisponivel}"
     if [[ -s "$arquivo_resultados" ]]; then
         printf '| Entrada | Categoria | Linhas | Colunas | Gerações | Células iniciais | Rodadas | Simulação média (s) | Desvio-padrão (s) | Mínimo (s) | Máximo (s) | RSS máximo médio (MiB) | Falhas maiores médias | Falhas menores médias | Trocas voluntárias médias | Trocas involuntárias médias |\n'
         printf '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n'
-        awk -F, -v coluna_versao="$coluna_versao" '
-            NR > 1 && (coluna_versao == 0 || $coluna_versao == "sequencial") {
+        awk -F, '
+            NR > 1 && $30 == "sequencial" {
                 chave = $1 SUBSEP $2 SUBSEP $3 SUBSEP $4 SUBSEP $5 SUBSEP $7
                 quantidade[chave]++
                 soma[chave] += $10

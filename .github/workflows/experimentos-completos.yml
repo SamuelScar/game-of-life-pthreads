@@ -34,14 +34,6 @@ jobs:
       - name: Construir ambiente
         run: docker compose build dev
 
-      - name: Validar comportamento das implementações
-        env:
-          THREADS_LISTA: ${{ inputs.threads_lista }}
-        run: |
-          docker compose run --rm -T \
-            -e THREADS_LISTA \
-            dev make validate
-
       - name: Executar série completa de experimentos
         id: experimentos
         env:

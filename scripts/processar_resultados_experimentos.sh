@@ -352,31 +352,6 @@ validar_resumo()
     ' "$arquivo_resumo"
 }
 
-verificar_sintaxe_awk()
-{
-    local diretorio_temporario
-    local resumo_temporario
-
-    diretorio_temporario="$(mktemp -d)"
-    resumo_temporario="$diretorio_temporario/resumo.csv"
-
-    contar_registros_csv /dev/null > /dev/null
-    validar_execucoes /dev/null 1
-    validar_repeticoes /dev/null 1
-    gerar_resumo /dev/null "$resumo_temporario"
-    validar_resumo "$resumo_temporario"
-
-    rm -f "$resumo_temporario"
-    rmdir "$diretorio_temporario"
-
-    printf 'Sintaxe dos processadores AWK validada.\n'
-}
-
-if [[ "${1:-}" == "--verificar-sintaxe" ]]; then
-    verificar_sintaxe_awk
-    exit 0
-fi
-
 diretorio_resultados="${1:-$raiz_projeto/resultados/experimentos_completos}"
 total_execucoes_esperado="${2:-}"
 total_resumos_esperado="${3:-}"

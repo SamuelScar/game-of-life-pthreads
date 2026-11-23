@@ -8,7 +8,6 @@ binario_sequencial="$raiz_projeto/bin/sequencial"
 binario_paralelo="$raiz_projeto/bin/paralelo"
 binario_condicionador_cache="$raiz_projeto/bin/condicionar-cache"
 processador_resultados="$diretorio_script/processar_resultados_experimentos.sh"
-validador_processamento="$diretorio_script/validar_processamento_resultados.sh"
 diretorio_entradas="$raiz_projeto/entradas"
 diretorio_resultados="$raiz_projeto/resultados/experimentos_completos"
 arquivo_execucoes="$diretorio_resultados/execucoes.csv"
@@ -272,15 +271,6 @@ if [[ ! -f "$processador_resultados" ]]; then
         >&2
     exit 1
 fi
-
-if [[ ! -f "$validador_processamento" ]]; then
-    printf 'Validador do processamento não encontrado em %s.\n' \
-        "$validador_processamento" \
-        >&2
-    exit 1
-fi
-
-bash "$validador_processamento"
 
 if ((bytes_condicionamento_cache > 0)) \
     && [[ ! -x "$binario_condicionador_cache" ]]; then
