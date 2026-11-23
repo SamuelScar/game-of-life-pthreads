@@ -292,7 +292,7 @@ semantica_quantidade_threads="${semantica_quantidade_threads:-indisponivel}"
     if [[ "$thread_principal_participa" == "sim" ]]; then
         printf -- '- A quantidade de threads inclui a principal, que também processa uma faixa de linhas.\n'
     fi
-    printf '%s\n' '- Configurações com mais participantes que núcleos físicos disponíveis são marcadas como oversubscription.'
+    printf '%s\n' '- Configurações com mais participantes que processadores lógicos disponíveis são marcadas como oversubscription.'
 } > "$arquivo_relatorio"
 
 printf 'Relatorio gerado em %s\n' "$arquivo_relatorio"

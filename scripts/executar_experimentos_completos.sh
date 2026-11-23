@@ -116,7 +116,7 @@ registrar_execucao()
         linhas_min_participante=$((linhas / quantidade_threads))
         linhas_max_participante=$(((linhas + quantidade_threads - 1) / quantidade_threads))
 
-        if ((quantidade_threads > processadores_fisicos)); then
+        if ((quantidade_threads > processadores_logicos)); then
             oversubscription=sim
         fi
     fi
